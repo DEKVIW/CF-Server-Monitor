@@ -134,13 +134,17 @@ export const getTrafficUsage = (server) => {
   const baseline = parseFloat(server?.traffic_used_baseline) || 0
   const baselineRx = parseFloat(server?.traffic_rx_baseline) || 0
   const baselineTx = parseFloat(server?.traffic_tx_baseline) || 0
-  const delta = Math.max(0, monthlyRx - baselineRx) + Math.max(0, monthlyTx - baselineTx)
+  const mode = ['sum', 'rx', 'tx'].includes(server?.traffic_count_mode) ? server.traffic_count_mode : 'sum'
+  const rxDelta = Math.max(0, monthlyRx - baselineRx)
+  const txDelta = Math.max(0, monthlyTx - baselineTx)
+  const delta = mode === 'rx' ? rxDelta : mode === 'tx' ? txDelta : rxDelta + txDelta
   const usedBytes = Math.max(0, baseline + delta)
   const percent = limitBytes > 0 ? Math.min((usedBytes / limitBytes) * 100, 999) : 0
 
   return {
     usedBytes,
     limitBytes,
+    mode,
     percent,
     remainingBytes: Math.max(0, limitBytes - usedBytes)
   }

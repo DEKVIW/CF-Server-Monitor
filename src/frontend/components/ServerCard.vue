@@ -45,6 +45,14 @@
         </div>
         <span class="stat-value">{{ diskPercent }}%</span>
       </div>
+      <div class="stat-row" v-if="trafficUsage">
+        <span class="stat-key">USE</span>
+        <div class="stat-bar-container">
+          <div class="stat-bar-fill" :style="{ width: trafficPercentWidth + '%', background: trafficColor }"></div>
+        </div>
+        <span class="stat-value">{{ trafficPercent }}%</span>
+      </div>
+      <div class="traffic-usage-text" v-if="trafficUsage">{{ trafficUsageText }}</div>
       <div class="stat-row">
         <span class="stat-key">NET</span>
         <span class="net-down">▼ {{ netInSpeed }}/s</span>
@@ -55,14 +63,6 @@
         <span class="net-down">▼ {{ totalRx }}</span>
         <span class="net-up">▲ {{ totalTx }}</span>
       </div>
-      <div class="stat-row" v-if="trafficUsage">
-        <span class="stat-key">USE</span>
-        <div class="stat-bar-container">
-          <div class="stat-bar-fill" :style="{ width: trafficPercentWidth + '%', background: trafficColor }"></div>
-        </div>
-        <span class="stat-value">{{ trafficPercent }}%</span>
-      </div>
-      <div class="traffic-usage-text" v-if="trafficUsage">{{ trafficUsageText }}</div>
       <div class="stat-row" v-if="sysConfig.show_tf && server.net_rx_monthly">
         <span class="stat-key">MTRF</span>
         <span class="net-down">▼ {{ monthlyRx }}</span>

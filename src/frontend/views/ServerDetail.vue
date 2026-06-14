@@ -870,7 +870,7 @@ const appendDataToChart = (chart, datasetIndex, timestamp, value, isPing = false
   chart.update('none')
 }
 
-const STATIC_FIELDS = ['id', 'name', 'country', 'arch', 'os', 'cpu_info', 'cpu_cores', 'ram_total', 'disk_total', 'expire_date', 'server_group', 'traffic_limit', 'traffic_used_baseline', 'traffic_rx_baseline', 'traffic_tx_baseline', 'traffic_reset_day', 'net_rx_monthly', 'net_tx_monthly']
+const STATIC_FIELDS = ['id', 'name', 'country', 'arch', 'os', 'cpu_info', 'cpu_cores', 'ram_total', 'disk_total', 'expire_date', 'server_group', 'traffic_limit', 'traffic_used_baseline', 'traffic_rx_baseline', 'traffic_tx_baseline', 'traffic_reset_day', 'traffic_count_mode', 'net_rx_monthly', 'net_tx_monthly']
 
 const fetchCurrentStatus = async (incomingData) => {
   try {

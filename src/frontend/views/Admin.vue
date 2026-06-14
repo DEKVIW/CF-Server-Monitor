@@ -452,6 +452,14 @@
               <input type="number" name="edit_traffic_reset_day" autocomplete="off" v-model="editForm.traffic_reset_day" min="1" max="31" class="form-input">
             </div>
           </div>
+          <div class="form-group">
+            <label class="form-label">{{ trans.trafficCountMode || 'Traffic Mode' }}</label>
+            <div class="mode-selector">
+              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'sum' }" @click="editForm.traffic_count_mode = 'sum'">RX+TX</button>
+              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'rx' }" @click="editForm.traffic_count_mode = 'rx'">RX</button>
+              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'tx' }" @click="editForm.traffic_count_mode = 'tx'">TX</button>
+            </div>
+          </div>
           <p class="text-muted text-xs mt-0 mb-3">{{ trans.trafficBaselineTip || 'Input provider panel used traffic. Saving records current probe traffic as baseline.' }}</p>
 
           <div class="form-group">
@@ -735,6 +743,7 @@ const editForm = ref({
   traffic_limit: '',
   traffic_used_baseline: '',
   traffic_reset_day: 1,
+  traffic_count_mode: 'sum',
   is_hidden: false
 })
 
@@ -1102,6 +1111,7 @@ const openEditModal = (server) => {
     traffic_limit: server.traffic_limit || '',
     traffic_used_baseline: trafficUsage ? formatBytes(trafficUsage.usedBytes) : '',
     traffic_reset_day: server.traffic_reset_day || 1,
+    traffic_count_mode: server.traffic_count_mode || 'sum',
     is_hidden: server.is_hidden === '1'
   }
   showEditModal.value = true
@@ -1123,6 +1133,7 @@ const saveEdit = async () => {
       traffic_limit: editForm.value.traffic_limit,
       traffic_used_baseline: editForm.value.traffic_used_baseline,
       traffic_reset_day: editForm.value.traffic_reset_day,
+      traffic_count_mode: editForm.value.traffic_count_mode,
       is_hidden: editForm.value.is_hidden ? '1' : '0'
     }
 

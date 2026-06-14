@@ -359,7 +359,7 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_used_baseline, traffic_reset_day, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_used_baseline, traffic_reset_day, traffic_count_mode, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return new Response(JSON.stringify({ error: '服务器 ID 无效' }), { 
           status: 400,
@@ -370,6 +370,7 @@ export async function handleAdminAPI(request, env, sys) {
       const hasBaselineInput = traffic_used_baseline !== undefined && String(traffic_used_baseline).trim() !== '';
       const baselineBytes = hasBaselineInput ? parseTrafficToBytes(traffic_used_baseline) : 0;
       const resetDay = Math.min(31, Math.max(1, parseInt(traffic_reset_day) || 1));
+      const countMode = ['sum', 'rx', 'tx'].includes(traffic_count_mode) ? traffic_count_mode : 'sum';
       const latestMetrics = await getLatestMetricsForAllServers(env.DB);
       const currentMetrics = latestMetrics.get(id);
       const currentMonthlyRx = parseFloat(currentMetrics?.net_rx_monthly) || 0;
@@ -381,7 +382,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -395,6 +396,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineRx,
           baselineTx,
           resetDay,
+          countMode,
           is_hidden || '0',
           id
         ).run();
@@ -402,7 +404,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -415,6 +417,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineRx,
           baselineTx,
           resetDay,
+          countMode,
           is_hidden || '0',
           id
         ).run();

@@ -204,6 +204,7 @@ const translations = reactive({
     monthlyTrafficLimit: 'Traffic Limit',
     trafficUsedBaseline: 'Panel Used',
     trafficUsage: 'Traffic Usage',
+    trafficCountMode: 'Traffic Mode',
     trafficBaselineTip: 'Enter the provider panel used traffic. Saving uses current probe traffic as the calibration point.',
     trafficResetDay: 'Traffic Reset Day',
     trafficResetDayTip: 'Day of month to reset traffic counter (1-31). Automatically adjusts for months with fewer days.'

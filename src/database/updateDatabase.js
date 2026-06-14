@@ -84,7 +84,8 @@ async function addServerColumns(db) {
       traffic_used_baseline: "REAL DEFAULT 0",
       traffic_rx_baseline: "REAL DEFAULT 0",
       traffic_tx_baseline: "REAL DEFAULT 0",
-      traffic_reset_day: "INTEGER DEFAULT 1"
+      traffic_reset_day: "INTEGER DEFAULT 1",
+      traffic_count_mode: "TEXT DEFAULT 'sum'"
     };
     
     let added = 0;
