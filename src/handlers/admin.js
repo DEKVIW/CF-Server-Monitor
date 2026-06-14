@@ -46,6 +46,26 @@ function isValidName(name) {
   return name && typeof name === 'string' && name.trim().length > 0 && name.length <= 100;
 }
 
+function parseTrafficToBytes(value) {
+  if (value === null || value === undefined || value === '') return 0;
+
+  const text = String(value).trim();
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)?$/i);
+  if (!match) return 0;
+
+  const amount = parseFloat(match[1]);
+  const unit = (match[2] || 'gb').toLowerCase();
+  const multipliers = {
+    b: 1,
+    kb: 1024,
+    mb: 1024 ** 2,
+    gb: 1024 ** 3,
+    tb: 1024 ** 4
+  };
+
+  return amount * (multipliers[unit] || 1);
+}
+
 export async function handleAdminAPI(request, env, sys) {
   try {
     const data = await request.json();
@@ -326,6 +346,7 @@ export async function handleAdminAPI(request, env, sys) {
       }
       
       clearServersListCache();
+      clearServerDetailCache(id);
       
       return new Response(JSON.stringify({ 
         success: true, 
@@ -338,7 +359,7 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_used_baseline, traffic_reset_day, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return new Response(JSON.stringify({ error: '服务器 ID 无效' }), { 
           status: 400,
@@ -346,10 +367,22 @@ export async function handleAdminAPI(request, env, sys) {
         });
       }
       
+      const hasBaselineInput = traffic_used_baseline !== undefined && String(traffic_used_baseline).trim() !== '';
+      const baselineBytes = hasBaselineInput ? parseTrafficToBytes(traffic_used_baseline) : 0;
+      const resetDay = Math.min(31, Math.max(1, parseInt(traffic_reset_day) || 1));
+      const latestMetrics = await getLatestMetricsForAllServers(env.DB);
+      const currentMetrics = latestMetrics.get(id);
+      const currentMonthlyRx = parseFloat(currentMetrics?.net_rx_monthly) || 0;
+      const currentMonthlyTx = parseFloat(currentMetrics?.net_tx_monthly) || 0;
+      const baselineRx = hasBaselineInput ? currentMonthlyRx : 0;
+      const baselineTx = hasBaselineInput ? currentMonthlyTx : 0;
+
       if (name && typeof name === 'string' && name.trim().length > 0 && name.length <= 100) {
         await env.DB.prepare(`
           UPDATE servers 
-          SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?, is_hidden = ? 
+          SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?,
+              is_hidden = ? 
           WHERE id = ?
         `).bind(
           name,
@@ -358,13 +391,19 @@ export async function handleAdminAPI(request, env, sys) {
           expire_date || '', 
           bandwidth || '', 
           traffic_limit || '',
+          baselineBytes,
+          baselineRx,
+          baselineTx,
+          resetDay,
           is_hidden || '0',
           id
         ).run();
       } else {
         await env.DB.prepare(`
           UPDATE servers 
-          SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?, is_hidden = ? 
+          SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?,
+              is_hidden = ? 
           WHERE id = ?
         `).bind(
           server_group || 'Default', 
@@ -372,6 +411,10 @@ export async function handleAdminAPI(request, env, sys) {
           expire_date || '', 
           bandwidth || '', 
           traffic_limit || '',
+          baselineBytes,
+          baselineRx,
+          baselineTx,
+          resetDay,
           is_hidden || '0',
           id
         ).run();

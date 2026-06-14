@@ -105,6 +105,47 @@ export const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
+export const parseTrafficToBytes = (value) => {
+  if (value === null || value === undefined || value === '') return 0
+
+  const text = String(value).trim()
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)?$/i)
+  if (!match) return 0
+
+  const amount = parseFloat(match[1])
+  const unit = (match[2] || 'gb').toLowerCase()
+  const multipliers = {
+    b: 1,
+    kb: 1024,
+    mb: 1024 ** 2,
+    gb: 1024 ** 3,
+    tb: 1024 ** 4
+  }
+
+  return amount * (multipliers[unit] || 1)
+}
+
+export const getTrafficUsage = (server) => {
+  const limitBytes = parseTrafficToBytes(server?.traffic_limit)
+  if (!limitBytes) return null
+
+  const monthlyRx = parseFloat(server?.net_rx_monthly) || 0
+  const monthlyTx = parseFloat(server?.net_tx_monthly) || 0
+  const baseline = parseFloat(server?.traffic_used_baseline) || 0
+  const baselineRx = parseFloat(server?.traffic_rx_baseline) || 0
+  const baselineTx = parseFloat(server?.traffic_tx_baseline) || 0
+  const delta = Math.max(0, monthlyRx - baselineRx) + Math.max(0, monthlyTx - baselineTx)
+  const usedBytes = Math.max(0, baseline + delta)
+  const percent = limitBytes > 0 ? Math.min((usedBytes / limitBytes) * 100, 999) : 0
+
+  return {
+    usedBytes,
+    limitBytes,
+    percent,
+    remainingBytes: Math.max(0, limitBytes - usedBytes)
+  }
+}
+
 export const fetchServers = async () => {
   const result = await http.get('/api/servers')
   if (result.error) return null

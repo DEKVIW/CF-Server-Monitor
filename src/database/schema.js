@@ -38,6 +38,10 @@ export async function initDatabase(db) {
         expire_date TEXT DEFAULT '',
         bandwidth TEXT DEFAULT '',
         traffic_limit TEXT DEFAULT '',
+        traffic_used_baseline REAL DEFAULT 0,
+        traffic_rx_baseline REAL DEFAULT 0,
+        traffic_tx_baseline REAL DEFAULT 0,
+        traffic_reset_day INTEGER DEFAULT 1,
         is_hidden TEXT DEFAULT '0',
         sort_order INTEGER DEFAULT 0
       )

@@ -69,9 +69,13 @@
           <span class="sysinfo-label">📊 {{ trans.monthlyTraffic }}</span>
           <span class="sysinfo-value sysinfo-small">↓ {{ formatBytes(server.net_rx_monthly) }} / ↑ {{ formatBytes(server.net_tx_monthly) }}</span>
         </div>
-        <div class="sysinfo-item" v-if="server.net_rx_monthly">
-          <span class="sysinfo-label">📦 {{ trans.monthlyTrafficLimit }}</span>
-          <span class="sysinfo-value sysinfo-small">{{ formatBytes(server.net_rx_monthly + server.net_tx_monthly) }} / {{ server.traffic_limit ? server.traffic_limit : 'Unlimited' }}</span>
+        <div class="sysinfo-item" v-if="trafficUsage">
+          <span class="sysinfo-label">USE {{ trans.trafficUsage || 'Traffic Usage' }}</span>
+          <span class="sysinfo-value sysinfo-small">{{ trafficUsageText }}</span>
+          <div class="traffic-detail-bar">
+            <div class="traffic-detail-fill" :style="{ width: trafficPercentWidth + '%', background: trafficColor }"></div>
+          </div>
+          <span class="traffic-detail-meta">{{ trafficPercent }}%</span>
         </div>
         <div class="sysinfo-item">
           <span class="sysinfo-label">🕐 {{ trans.bootTime }}</span>
@@ -236,7 +240,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
-import { fetchServerDetail, fetchAllHistory, formatBytes, fetchConfig, isAdminLoggedIn, createLiveSocket } from '../utils/api.js'
+import { fetchServerDetail, fetchAllHistory, formatBytes, getTrafficUsage, fetchConfig, isAdminLoggedIn, createLiveSocket } from '../utils/api.js'
 import Chart from 'chart.js/auto'
 import 'chartjs-adapter-date-fns'
 import { currentLang, translations } from '../utils/i18n'
@@ -282,6 +286,16 @@ const isOnline = computed(() => {
 const cpuPercent = computed(() => (parseFloat(server.value.cpu) || 0).toFixed(1))
 const ramPercent = computed(() => (parseFloat(server.value.ram) || 0).toFixed(1))
 const diskPercent = computed(() => (parseFloat(server.value.disk) || 0).toFixed(1))
+const trafficUsage = computed(() => getTrafficUsage(server.value))
+const trafficPercent = computed(() => trafficUsage.value ? trafficUsage.value.percent.toFixed(1) : '0.0')
+const trafficPercentWidth = computed(() => Math.min(trafficUsage.value?.percent || 0, 100))
+const trafficUsageText = computed(() => trafficUsage.value ? `${formatBytes(trafficUsage.value.usedBytes)} / ${formatBytes(trafficUsage.value.limitBytes)}` : '')
+const trafficColor = computed(() => {
+  const percent = trafficUsage.value?.percent || 0
+  if (percent >= 90) return 'var(--accent-red)'
+  if (percent >= 75) return 'var(--accent-yellow)'
+  return 'var(--accent-green)'
+})
 
 const lastReportTime = computed(() => {
   const lastUpdated = new Date(server.value.last_updated).getTime()
@@ -856,7 +870,7 @@ const appendDataToChart = (chart, datasetIndex, timestamp, value, isPing = false
   chart.update('none')
 }
 
-const STATIC_FIELDS = ['id', 'name', 'country', 'arch', 'os', 'cpu_info', 'cpu_cores', 'ram_total', 'disk_total', 'expire_date', 'server_group', 'traffic_limit', 'net_rx_monthly', 'net_tx_monthly']
+const STATIC_FIELDS = ['id', 'name', 'country', 'arch', 'os', 'cpu_info', 'cpu_cores', 'ram_total', 'disk_total', 'expire_date', 'server_group', 'traffic_limit', 'traffic_used_baseline', 'traffic_rx_baseline', 'traffic_tx_baseline', 'traffic_reset_day', 'net_rx_monthly', 'net_tx_monthly']
 
 const fetchCurrentStatus = async (incomingData) => {
   try {

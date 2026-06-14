@@ -202,6 +202,9 @@ const translations = reactive({
     jwtSecretPlaceholder: 'At least 32 characters',
     monthlyTraffic: 'Monthly Traffic',
     monthlyTrafficLimit: 'Traffic Limit',
+    trafficUsedBaseline: 'Panel Used',
+    trafficUsage: 'Traffic Usage',
+    trafficBaselineTip: 'Enter the provider panel used traffic. Saving uses current probe traffic as the calibration point.',
     trafficResetDay: 'Traffic Reset Day',
     trafficResetDayTip: 'Day of month to reset traffic counter (1-31). Automatically adjusts for months with fewer days.'
   },

@@ -143,7 +143,10 @@
                   <td><span class="price-tag">{{ server.price || '-' }}</span></td>
                   <td><span class="date-text">{{ server.expire_date || '-' }}</span></td>
                   <td><span class="spec-text">{{ server.bandwidth || '-' }}</span></td>
-                  <td><span class="spec-text">{{ server.traffic_limit || '-' }}</span></td>
+                  <td>
+                    <span class="spec-text">{{ server.traffic_limit || '-' }}</span>
+                    <div v-if="getTrafficUsage(server)" class="table-subtext">{{ formatBytes(getTrafficUsage(server).usedBytes) }} / {{ formatBytes(getTrafficUsage(server).limitBytes) }}</div>
+                  </td>
                   <td>
                     <span :style="{ color: getStatusColor(server) }" class="font-bold">{{ getStatusText(server) }}</span>
                   </td>
@@ -151,10 +154,10 @@
                     <div class="action-group">
                       <div class="cmd-input-wrapper" :class="{ copied: copiedServerId === server.id }">
                         <span class="cmd-prompt">$</span>
-                        <input @click="copyCmd(server.id)" type="text" readonly :value="getInstallCommand(server.id)" class="cmd-input">
+                        <input @click="copyCmd(server)" type="text" readonly :value="getInstallCommand(server)" class="cmd-input">
                       </div>
                       <div class="action-btns">
-                        <button @click="copyCmd(server.id)" class="btn btn-icon btn-green" :title="trans.copy">{{ copiedServerId === server.id ? '✅' : '📋' }}</button>
+                        <button @click="copyCmd(server)" class="btn btn-icon btn-green" :title="trans.copy">{{ copiedServerId === server.id ? '✅' : '📋' }}</button>
                         <button @click="openEditModal(server)" class="btn btn-icon btn-blue" :title="trans.edit">✏️</button>
                         <button @click="openDeleteModal(server.id)" class="btn btn-icon btn-red" :title="trans.delete">🗑️</button>
                       </div>
@@ -439,6 +442,18 @@
             <input type="text" name="edit_traffic_limit" autocomplete="off" v-model="editForm.traffic_limit" class="form-input" placeholder="e.g. 1TB">
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">{{ trans.trafficUsedBaseline || 'Panel Used' }}</label>
+              <input type="text" name="edit_traffic_used_baseline" autocomplete="off" v-model="editForm.traffic_used_baseline" class="form-input" placeholder="e.g. 261.5GB">
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{ trans.trafficResetDay }}</label>
+              <input type="number" name="edit_traffic_reset_day" autocomplete="off" v-model="editForm.traffic_reset_day" min="1" max="31" class="form-input">
+            </div>
+          </div>
+          <p class="text-muted text-xs mt-0 mb-3">{{ trans.trafficBaselineTip || 'Input provider panel used traffic. Saving records current probe traffic as baseline.' }}</p>
+
           <div class="form-group">
             <div class="checkbox-item no-margin">
               <input type="checkbox" v-model="editForm.is_hidden">
@@ -636,7 +651,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
-import { adminApi, login, logout as apiLogout, formatBytes, upgradeDatabase, rebuildDatabase } from '../utils/api'
+import { adminApi, login, logout as apiLogout, formatBytes, getTrafficUsage, upgradeDatabase, rebuildDatabase } from '../utils/api'
 import { t, currentLang } from '../utils/i18n'
 import { translations } from '../utils/i18n'
 
@@ -718,6 +733,8 @@ const editForm = ref({
   expire_date: '',
   bandwidth: '',
   traffic_limit: '',
+  traffic_used_baseline: '',
+  traffic_reset_day: 1,
   is_hidden: false
 })
 
@@ -1001,17 +1018,19 @@ const addServer = async () => {
     }
   }
 
-const getInstallCommand = (serverId) => {
+const getInstallCommand = (server) => {
   const HOST = API_BASE
-  return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update`
+  const serverId = typeof server === 'string' ? server : server.id
+  const day = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
+  return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -reset_day=${day}`
 }
 
 const getUninstallCommand = () => {
   return `curl -sL ${API_BASE}/install.sh | bash -s uninstall`
 }
 
-const copyCmd = (serverId) => {
-  copyServerId.value = serverId
+const copyCmd = (server) => {
+  copyServerId.value = typeof server === 'string' ? server : server.id
   targetOs.value = 'linux'
   reportInterval.value = 60
   pingMode.value = 'http'
@@ -1019,7 +1038,7 @@ const copyCmd = (serverId) => {
   customCu.value = settings.value.custom_cu
   customCm.value = settings.value.custom_cm
   customBd.value = settings.value.custom_bd
-  resetDay.value = 1
+  resetDay.value = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
   copiedCmd.value = false
   showCopyModal.value = true
 }
@@ -1072,6 +1091,7 @@ const copyUninstallCmd = async () => {
 }
 
 const openEditModal = (server) => {
+  const trafficUsage = getTrafficUsage(server)
   editForm.value = {
     id: server.id,
     name: server.name || '',
@@ -1080,6 +1100,8 @@ const openEditModal = (server) => {
     expire_date: server.expire_date || '',
     bandwidth: server.bandwidth || '',
     traffic_limit: server.traffic_limit || '',
+    traffic_used_baseline: trafficUsage ? formatBytes(trafficUsage.usedBytes) : '',
+    traffic_reset_day: server.traffic_reset_day || 1,
     is_hidden: server.is_hidden === '1'
   }
   showEditModal.value = true
@@ -1099,6 +1121,8 @@ const saveEdit = async () => {
       expire_date: editForm.value.expire_date,
       bandwidth: editForm.value.bandwidth,
       traffic_limit: editForm.value.traffic_limit,
+      traffic_used_baseline: editForm.value.traffic_used_baseline,
+      traffic_reset_day: editForm.value.traffic_reset_day,
       is_hidden: editForm.value.is_hidden ? '1' : '0'
     }
 

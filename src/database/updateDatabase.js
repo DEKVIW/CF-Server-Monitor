@@ -80,7 +80,11 @@ async function addServerColumns(db) {
     const newCols = {
       country: "TEXT DEFAULT ''",
       is_hidden: "TEXT DEFAULT '0'",
-      sort_order: "INTEGER DEFAULT 0"
+      sort_order: "INTEGER DEFAULT 0",
+      traffic_used_baseline: "REAL DEFAULT 0",
+      traffic_rx_baseline: "REAL DEFAULT 0",
+      traffic_tx_baseline: "REAL DEFAULT 0",
+      traffic_reset_day: "INTEGER DEFAULT 1"
     };
     
     let added = 0;

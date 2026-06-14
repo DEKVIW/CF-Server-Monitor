@@ -55,6 +55,14 @@
         <span class="net-down">▼ {{ totalRx }}</span>
         <span class="net-up">▲ {{ totalTx }}</span>
       </div>
+      <div class="stat-row" v-if="trafficUsage">
+        <span class="stat-key">USE</span>
+        <div class="stat-bar-container">
+          <div class="stat-bar-fill" :style="{ width: trafficPercentWidth + '%', background: trafficColor }"></div>
+        </div>
+        <span class="stat-value">{{ trafficPercent }}%</span>
+      </div>
+      <div class="traffic-usage-text" v-if="trafficUsage">{{ trafficUsageText }}</div>
       <div class="stat-row" v-if="sysConfig.show_tf && server.net_rx_monthly">
         <span class="stat-key">MTRF</span>
         <span class="net-down">▼ {{ monthlyRx }}</span>
@@ -84,7 +92,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatBytes } from '../utils/api'
+import { formatBytes, getTrafficUsage } from '../utils/api'
 import { t, currentLang } from '../utils/i18n'
 import { translations } from '../utils/i18n'
 import { TIME, PING } from '../utils/constants'
@@ -129,6 +137,16 @@ const totalRx = computed(() => formatBytes(props.server.net_rx))
 const totalTx = computed(() => formatBytes(props.server.net_tx))
 const monthlyRx = computed(() => formatBytes(props.server.net_rx_monthly))
 const monthlyTx = computed(() => formatBytes(props.server.net_tx_monthly))
+const trafficUsage = computed(() => props.sysConfig.show_tf ? getTrafficUsage(props.server) : null)
+const trafficPercent = computed(() => trafficUsage.value ? trafficUsage.value.percent.toFixed(1) : '0.0')
+const trafficPercentWidth = computed(() => Math.min(trafficUsage.value?.percent || 0, 100))
+const trafficUsageText = computed(() => trafficUsage.value ? `${formatBytes(trafficUsage.value.usedBytes)} / ${formatBytes(trafficUsage.value.limitBytes)}` : '')
+const trafficColor = computed(() => {
+  const percent = trafficUsage.value?.percent || 0
+  if (percent >= 90) return 'var(--accent-red)'
+  if (percent >= 75) return 'var(--accent-yellow)'
+  return 'var(--accent-green)'
+})
 
 const isExpired = computed(() => {
   const expTime = new Date(props.server.expire_date).getTime()
