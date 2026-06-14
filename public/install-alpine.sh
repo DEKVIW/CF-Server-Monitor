@@ -486,7 +486,7 @@ while true; do
     fi
     OS=${OS_RAW:-"Alpine Linux"}
     ARCH=$(uname -m)
-    BOOT_TIME=$(awk '$1=="btime"{print $2*1000; exit}' /proc/stat 2>/dev/null)
+    BOOT_TIME=$(awk '$1=="btime"{printf "%.0f", $2*1000; exit}' /proc/stat 2>/dev/null)
     BOOT_TIME=${BOOT_TIME:-0}
     CPU_INFO=$(grep -m 1 'model name' /proc/cpuinfo 2>/dev/null | awk -F: '{print $2}' | xargs || echo "")
     [ -z "${CPU_INFO}" ] && CPU_INFO=${ARCH}

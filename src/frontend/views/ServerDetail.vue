@@ -355,19 +355,19 @@ const parseLoadAvg = (loadAvgStr) => {
 
 const parseBootTimeToMs = (bootTime) => {
   if (!bootTime) return null
+
+  const text = String(bootTime).trim()
   
-  if (typeof bootTime === 'string' && !/^\d+$/.test(bootTime)) {
-    const date = new Date(bootTime)
+  if (!/^\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(text)) {
+    const date = new Date(text)
     if (isNaN(date.getTime())) return null
     return date.getTime()
-  } else {
-    let timestamp = parseInt(bootTime)
-    if (isNaN(timestamp)) return null
-    if (timestamp < 1000000000000) {
-      timestamp *= 1000
-    }
-    return timestamp
   }
+
+  let timestamp = Number(text)
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null
+  if (timestamp < 1000000000000) timestamp *= 1000
+  return timestamp
 }
 
 const formatUptime = (bootTime) => {

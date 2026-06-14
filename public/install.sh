@@ -426,7 +426,7 @@ while true; do
     BOOT_TIME=$(
     awk '
     $1=="btime"{
-        print $2 * 1000
+        printf "%.0f", $2 * 1000
         exit
     }
     ' /proc/stat 2>/dev/null
