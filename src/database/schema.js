@@ -38,6 +38,8 @@ export async function initDatabase(db) {
         expire_date TEXT DEFAULT '',
         bandwidth TEXT DEFAULT '',
         traffic_limit TEXT DEFAULT '',
+        report_interval INTEGER DEFAULT 60,
+        ping_mode TEXT DEFAULT 'http',
         traffic_used_baseline REAL DEFAULT 0,
         traffic_rx_baseline REAL DEFAULT 0,
         traffic_tx_baseline REAL DEFAULT 0,

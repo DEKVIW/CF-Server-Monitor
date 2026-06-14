@@ -405,62 +405,82 @@
       </div>
 
       <div id="editModal" class="modal-overlay" :class="{ active: showEditModal }">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-lg">
           <div class="modal-header">
             <div class="modal-title">$ vim /etc/server.conf</div>
             <button class="modal-close" @click="closeEditModal">✕</button>
           </div>
           <input type="hidden" v-model="editForm.id">
 
-          <div class="form-group">
-            <label class="form-label">{{ trans.hostnameLabel }} <span class="required">*</span></label>
-            <input type="text" name="edit_name" autocomplete="off" v-model="editForm.name" class="form-input" placeholder="e.g. My Server">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">{{ trans.groupName }}</label>
-            <input type="text" name="edit_server_group" autocomplete="off" v-model="editForm.server_group" class="form-input" placeholder="e.g. US VPS">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">{{ trans.price }}</label>
-            <input type="text" name="edit_price" autocomplete="off" v-model="editForm.price" class="form-input" placeholder="e.g. $40/Y">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">{{ trans.expirationDate }}</label>
-            <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">{{ trans.bandwidth }}</label>
-            <input type="text" name="edit_bandwidth" autocomplete="off" v-model="editForm.bandwidth" class="form-input" placeholder="e.g. 1Gbps">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">{{ trans.trafficLimit }}</label>
-            <input type="text" name="edit_traffic_limit" autocomplete="off" v-model="editForm.traffic_limit" class="form-input" placeholder="e.g. 1TB">
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">{{ trans.trafficUsedBaseline || 'Panel Used' }}</label>
-              <input type="text" name="edit_traffic_used_baseline" autocomplete="off" v-model="editForm.traffic_used_baseline" class="form-input" placeholder="e.g. 261.5GB">
+          <div class="edit-form-grid">
+            <div class="form-group grid-span-2">
+              <label class="form-label">{{ trans.hostnameLabel }} <span class="required">*</span></label>
+              <input type="text" name="edit_name" autocomplete="off" v-model="editForm.name" class="form-input" placeholder="e.g. My Server">
             </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.groupName }}</label>
+              <input type="text" name="edit_server_group" autocomplete="off" v-model="editForm.server_group" class="form-input" placeholder="e.g. US VPS">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.price }}</label>
+              <input type="text" name="edit_price" autocomplete="off" v-model="editForm.price" class="form-input" placeholder="e.g. $40/Y">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.expirationDate }}</label>
+              <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.bandwidth }}</label>
+              <input type="text" name="edit_bandwidth" autocomplete="off" v-model="editForm.bandwidth" class="form-input" placeholder="e.g. 1Gbps">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.trafficLimit }}</label>
+              <input type="text" name="edit_traffic_limit" autocomplete="off" v-model="editForm.traffic_limit" class="form-input" placeholder="e.g. 1TB">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.trafficCountMode || 'Traffic Mode' }}</label>
+              <div class="mode-selector">
+                <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'sum' }" @click="editForm.traffic_count_mode = 'sum'">RX+TX</button>
+                <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'rx' }" @click="editForm.traffic_count_mode = 'rx'">RX</button>
+                <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'tx' }" @click="editForm.traffic_count_mode = 'tx'">TX</button>
+              </div>
+            </div>
+
             <div class="form-group">
               <label class="form-label">{{ trans.trafficResetDay }}</label>
               <input type="number" name="edit_traffic_reset_day" autocomplete="off" v-model="editForm.traffic_reset_day" min="1" max="31" class="form-input">
             </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">{{ trans.trafficCountMode || 'Traffic Mode' }}</label>
-            <div class="mode-selector">
-              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'sum' }" @click="editForm.traffic_count_mode = 'sum'">RX+TX</button>
-              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'rx' }" @click="editForm.traffic_count_mode = 'rx'">RX</button>
-              <button type="button" class="mode-btn" :class="{ active: editForm.traffic_count_mode === 'tx' }" @click="editForm.traffic_count_mode = 'tx'">TX</button>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.trafficUsedBaseline || 'Panel Used' }}</label>
+              <input type="text" name="edit_traffic_used_baseline" autocomplete="off" v-model="editForm.traffic_used_baseline" class="form-input" placeholder="e.g. 261.5GB">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.reportInterval }}</label>
+              <select v-model="editForm.report_interval" class="form-select">
+                <option :value="30">30</option>
+                <option :value="60">60</option>
+                <option :value="120">120</option>
+                <option :value="180">180</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">{{ trans.pingMode }}</label>
+              <select v-model="editForm.ping_mode" class="form-select">
+                <option value="http">HTTP</option>
+                <option value="tcp">TCP</option>
+              </select>
             </div>
           </div>
-          <p class="text-muted text-xs mt-0 mb-3">{{ trans.trafficBaselineTip || 'Input provider panel used traffic. Saving records current probe traffic as baseline.' }}</p>
+          <p class="text-muted text-xs mt-0 mb-3">[i] {{ trans.trafficBaselineTip || 'Input provider panel used traffic. Saving records current probe traffic as baseline.' }}</p>
 
           <div class="form-group">
             <div class="checkbox-item no-margin">
@@ -741,6 +761,8 @@ const editForm = ref({
   expire_date: '',
   bandwidth: '',
   traffic_limit: '',
+  report_interval: 60,
+  ping_mode: 'http',
   traffic_used_baseline: '',
   traffic_reset_day: 1,
   traffic_count_mode: 'sum',
@@ -1031,7 +1053,9 @@ const getInstallCommand = (server) => {
   const HOST = API_BASE
   const serverId = typeof server === 'string' ? server : server.id
   const day = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
-  return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -reset_day=${day}`
+  const interval = typeof server === 'string' ? 60 : (server.report_interval || 60)
+  const ping = typeof server === 'string' ? 'http' : (server.ping_mode || 'http')
+  return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${interval} -ping=${ping} -reset_day=${day}`
 }
 
 const getUninstallCommand = () => {
@@ -1041,8 +1065,8 @@ const getUninstallCommand = () => {
 const copyCmd = (server) => {
   copyServerId.value = typeof server === 'string' ? server : server.id
   targetOs.value = 'linux'
-  reportInterval.value = 60
-  pingMode.value = 'http'
+  reportInterval.value = typeof server === 'string' ? 60 : (server.report_interval || 60)
+  pingMode.value = typeof server === 'string' ? 'http' : (server.ping_mode || 'http')
   customCt.value = settings.value.custom_ct
   customCu.value = settings.value.custom_cu
   customCm.value = settings.value.custom_cm
@@ -1109,6 +1133,8 @@ const openEditModal = (server) => {
     expire_date: server.expire_date || '',
     bandwidth: server.bandwidth || '',
     traffic_limit: server.traffic_limit || '',
+    report_interval: server.report_interval || 60,
+    ping_mode: server.ping_mode || 'http',
     traffic_used_baseline: trafficUsage ? formatBytes(trafficUsage.usedBytes) : '',
     traffic_reset_day: server.traffic_reset_day || 1,
     traffic_count_mode: server.traffic_count_mode || 'sum',
@@ -1131,6 +1157,8 @@ const saveEdit = async () => {
       expire_date: editForm.value.expire_date,
       bandwidth: editForm.value.bandwidth,
       traffic_limit: editForm.value.traffic_limit,
+      report_interval: editForm.value.report_interval,
+      ping_mode: editForm.value.ping_mode,
       traffic_used_baseline: editForm.value.traffic_used_baseline,
       traffic_reset_day: editForm.value.traffic_reset_day,
       traffic_count_mode: editForm.value.traffic_count_mode,

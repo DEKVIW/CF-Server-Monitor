@@ -1364,6 +1364,10 @@ body::before {
     overflow-y: auto;
 }
 
+.modal-dialog-lg {
+    width: 880px;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;
@@ -1404,6 +1408,20 @@ body::before {
     margin-top: 20px;
     padding-top: 16px;
     border-top: 1px solid var(--border-color);
+}
+
+.edit-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 24px;
+}
+
+.edit-form-grid .form-group {
+    margin-bottom: 0;
+}
+
+.grid-span-2 {
+    grid-column: span 2;
 }
 
 /* --------------------------------------------------------------------------
@@ -1973,6 +1991,19 @@ body::before {
 
     .settings-grid {
         grid-template-columns: 1fr;
+    }
+
+    .modal-dialog-lg {
+        width: 94%;
+    }
+
+    .edit-form-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .grid-span-2 {
+        grid-column: auto;
     }
 
     .view-panel {

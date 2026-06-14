@@ -81,6 +81,8 @@ async function addServerColumns(db) {
       country: "TEXT DEFAULT ''",
       is_hidden: "TEXT DEFAULT '0'",
       sort_order: "INTEGER DEFAULT 0",
+      report_interval: "INTEGER DEFAULT 60",
+      ping_mode: "TEXT DEFAULT 'http'",
       traffic_used_baseline: "REAL DEFAULT 0",
       traffic_rx_baseline: "REAL DEFAULT 0",
       traffic_tx_baseline: "REAL DEFAULT 0",

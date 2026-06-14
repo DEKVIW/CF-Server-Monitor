@@ -359,7 +359,7 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_used_baseline, traffic_reset_day, traffic_count_mode, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, report_interval, ping_mode, traffic_used_baseline, traffic_reset_day, traffic_count_mode, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return new Response(JSON.stringify({ error: '服务器 ID 无效' }), { 
           status: 400,
@@ -371,6 +371,9 @@ export async function handleAdminAPI(request, env, sys) {
       const baselineBytes = hasBaselineInput ? parseTrafficToBytes(traffic_used_baseline) : 0;
       const resetDay = Math.min(31, Math.max(1, parseInt(traffic_reset_day) || 1));
       const countMode = ['sum', 'rx', 'tx'].includes(traffic_count_mode) ? traffic_count_mode : 'sum';
+      const parsedInterval = parseInt(report_interval);
+      const reportInterval = [30, 60, 120, 180].includes(parsedInterval) ? parsedInterval : 60;
+      const pingMode = ['http', 'tcp'].includes(ping_mode) ? ping_mode : 'http';
       const latestMetrics = await getLatestMetricsForAllServers(env.DB);
       const currentMetrics = latestMetrics.get(id);
       const currentMonthlyRx = parseFloat(currentMetrics?.net_rx_monthly) || 0;
@@ -382,6 +385,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
+              report_interval = ?, ping_mode = ?,
               traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
@@ -392,6 +396,8 @@ export async function handleAdminAPI(request, env, sys) {
           expire_date || '', 
           bandwidth || '', 
           traffic_limit || '',
+          reportInterval,
+          pingMode,
           baselineBytes,
           baselineRx,
           baselineTx,
@@ -404,6 +410,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
+              report_interval = ?, ping_mode = ?,
               traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
@@ -413,6 +420,8 @@ export async function handleAdminAPI(request, env, sys) {
           expire_date || '', 
           bandwidth || '', 
           traffic_limit || '',
+          reportInterval,
+          pingMode,
           baselineBytes,
           baselineRx,
           baselineTx,
@@ -424,6 +433,7 @@ export async function handleAdminAPI(request, env, sys) {
       }
       
       clearServersListCache();
+      clearServerDetailCache(id);
       
       return new Response(JSON.stringify({ 
         success: true, 
