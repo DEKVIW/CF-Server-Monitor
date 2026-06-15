@@ -195,7 +195,30 @@ safe_div() {
 }
 
 get_net_bytes() {
-    awk 'NR>2{rx+=$2;tx+=$10}END{printf "%.0f %.0f\n",rx,tx}' /proc/net/dev 2>/dev/null || echo "0 0";
+    awk '
+    function ignored_iface(iface) {
+        return (iface == "lo" || iface ~ /^(docker|veth|br-|virbr|vmbr|vnet|kube|cni|flannel|calico|tun|tap|wg|tailscale|zt|fw|Meta|ifb|dummy)/)
+    }
+    NR > 2 {
+        iface = $1
+        sub(/:$/, "", iface)
+        iface_rx = $2 + 0
+        iface_tx = $10 + 0
+        all_rx += iface_rx
+        all_tx += iface_tx
+        if (!ignored_iface(iface)) {
+            rx += iface_rx
+            tx += iface_tx
+            kept += 1
+        }
+    }
+    END {
+        if (kept > 0) {
+            printf "%.0f %.0f\n", rx, tx
+        } else {
+            printf "%.0f %.0f\n", all_rx, all_tx
+        }
+    }' /proc/net/dev 2>/dev/null || echo "0 0";
 }
 
 # ------------------ 月度流量追踪模块 ------------------
