@@ -463,6 +463,11 @@
             </div>
 
             <div class="form-group">
+              <label class="form-label">{{ trans.trafficIface || 'Traffic NIC' }}</label>
+              <input type="text" name="edit_traffic_iface" autocomplete="off" v-model="editForm.traffic_iface" class="form-input" placeholder="auto or eth0">
+            </div>
+
+            <div class="form-group">
               <label class="form-label">{{ trans.reportInterval }}</label>
               <select v-model="editForm.report_interval" class="form-select">
                 <option :value="30">30</option>
@@ -481,6 +486,7 @@
             </div>
           </div>
           <p class="text-muted text-xs mt-0 mb-3">[i] {{ trans.trafficBaselineTip || 'Input provider panel used traffic. Saving records current probe traffic as baseline.' }}</p>
+          <p class="text-muted text-xs mt-0 mb-3">[i] {{ trans.trafficIfaceTip || 'Leave empty for auto. Use eth0 or comma-separated NICs only when needed.' }}</p>
 
           <div class="form-group">
             <div class="checkbox-item no-margin">
@@ -600,6 +606,14 @@
             <input type="number" name="reset_day" autocomplete="off" v-model="resetDay" min="1" max="31" class="form-input" placeholder="1" style="width: 100px;">
             <p class="text-muted text-sm mt-2">
               <span class="warning-icon">[i]</span> {{ trans.trafficResetDayTip }}
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">{{ trans.trafficIface || 'Traffic NIC' }}</label>
+            <input type="text" name="traffic_iface" autocomplete="off" v-model="trafficIface" class="form-input" placeholder="auto or eth0">
+            <p class="text-muted text-sm mt-2">
+              <span class="warning-icon">[i]</span> {{ trans.trafficIfaceTip || 'Leave empty for auto. Use eth0 or comma-separated NICs only when needed.' }}
             </p>
           </div>
 
@@ -766,6 +780,7 @@ const editForm = ref({
   traffic_used_baseline: '',
   traffic_reset_day: 1,
   traffic_count_mode: 'sum',
+  traffic_iface: '',
   is_hidden: false
 })
 
@@ -791,6 +806,7 @@ const customCu = ref('')
 const customCm = ref('')
 const customBd = ref('')
 const resetDay = ref(1)
+const trafficIface = ref('')
 const copiedCmd = ref(false)
 
 const handleLogin = async () => {
@@ -1049,13 +1065,26 @@ const addServer = async () => {
     }
   }
 
+const sanitizeTrafficIface = (value) => {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(item => /^[A-Za-z0-9_.:-]{1,32}$/.test(item))
+    .filter((item, index, arr) => arr.indexOf(item) === index)
+    .slice(0, 8)
+    .join(',')
+}
+
 const getInstallCommand = (server) => {
   const HOST = API_BASE
   const serverId = typeof server === 'string' ? server : server.id
   const day = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
   const interval = typeof server === 'string' ? 60 : (server.report_interval || 60)
   const ping = typeof server === 'string' ? 'http' : (server.ping_mode || 'http')
-  return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${interval} -ping=${ping} -reset_day=${day}`
+  const iface = typeof server === 'string' ? '' : sanitizeTrafficIface(server.traffic_iface)
+  let cmd = `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${interval} -ping=${ping} -reset_day=${day}`
+  if (iface) cmd += ` -iface=${iface}`
+  return cmd
 }
 
 const getUninstallCommand = () => {
@@ -1072,6 +1101,7 @@ const copyCmd = (server) => {
   customCm.value = settings.value.custom_cm
   customBd.value = settings.value.custom_bd
   resetDay.value = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
+  trafficIface.value = typeof server === 'string' ? '' : (server.traffic_iface || '')
   copiedCmd.value = false
   showCopyModal.value = true
 }
@@ -1084,6 +1114,8 @@ const getCustomInstallCommand = () => {
   const shell = targetOs.value === 'alpine' ? 'sh' : 'bash'
   const script = targetOs.value === 'alpine' ? 'install-alpine.sh' : 'install.sh'
   let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value || 1}`
+  const iface = sanitizeTrafficIface(trafficIface.value)
+  if (iface) cmd += ` -iface=${iface}`
   if (customCt.value) cmd += ` -ct=${customCt.value}`
   if (customCu.value) cmd += ` -cu=${customCu.value}`
   if (customCm.value) cmd += ` -cm=${customCm.value}`
@@ -1138,6 +1170,7 @@ const openEditModal = (server) => {
     traffic_used_baseline: trafficUsage ? formatBytes(trafficUsage.usedBytes) : '',
     traffic_reset_day: server.traffic_reset_day || 1,
     traffic_count_mode: server.traffic_count_mode || 'sum',
+    traffic_iface: server.traffic_iface || '',
     is_hidden: server.is_hidden === '1'
   }
   showEditModal.value = true
@@ -1162,6 +1195,7 @@ const saveEdit = async () => {
       traffic_used_baseline: editForm.value.traffic_used_baseline,
       traffic_reset_day: editForm.value.traffic_reset_day,
       traffic_count_mode: editForm.value.traffic_count_mode,
+      traffic_iface: sanitizeTrafficIface(editForm.value.traffic_iface),
       is_hidden: editForm.value.is_hidden ? '1' : '0'
     }
 

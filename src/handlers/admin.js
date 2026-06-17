@@ -66,6 +66,18 @@ function parseTrafficToBytes(value) {
   return amount * (multipliers[unit] || 1);
 }
 
+function sanitizeTrafficIface(value) {
+  if (value === null || value === undefined) return '';
+
+  return String(value)
+    .split(',')
+    .map(item => item.trim())
+    .filter(item => /^[A-Za-z0-9_.:-]{1,32}$/.test(item))
+    .filter((item, index, arr) => arr.indexOf(item) === index)
+    .slice(0, 8)
+    .join(',');
+}
+
 export async function handleAdminAPI(request, env, sys) {
   try {
     const data = await request.json();
@@ -359,7 +371,7 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, report_interval, ping_mode, traffic_used_baseline, traffic_reset_day, traffic_count_mode, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, report_interval, ping_mode, traffic_used_baseline, traffic_reset_day, traffic_count_mode, traffic_iface, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return new Response(JSON.stringify({ error: '服务器 ID 无效' }), { 
           status: 400,
@@ -374,6 +386,7 @@ export async function handleAdminAPI(request, env, sys) {
       const parsedInterval = parseInt(report_interval);
       const reportInterval = [30, 60, 120, 180].includes(parsedInterval) ? parsedInterval : 60;
       const pingMode = ['http', 'tcp'].includes(ping_mode) ? ping_mode : 'http';
+      const trafficIface = sanitizeTrafficIface(traffic_iface);
       const latestMetrics = await getLatestMetricsForAllServers(env.DB);
       const currentMetrics = latestMetrics.get(id);
       const currentMonthlyRx = parseFloat(currentMetrics?.net_rx_monthly) || 0;
@@ -385,7 +398,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
-              report_interval = ?, ping_mode = ?,
+              report_interval = ?, ping_mode = ?, traffic_iface = ?,
               traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
@@ -398,6 +411,7 @@ export async function handleAdminAPI(request, env, sys) {
           traffic_limit || '',
           reportInterval,
           pingMode,
+          trafficIface,
           baselineBytes,
           baselineRx,
           baselineTx,
@@ -410,7 +424,7 @@ export async function handleAdminAPI(request, env, sys) {
         await env.DB.prepare(`
           UPDATE servers 
           SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
-              report_interval = ?, ping_mode = ?,
+              report_interval = ?, ping_mode = ?, traffic_iface = ?,
               traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
@@ -422,6 +436,7 @@ export async function handleAdminAPI(request, env, sys) {
           traffic_limit || '',
           reportInterval,
           pingMode,
+          trafficIface,
           baselineBytes,
           baselineRx,
           baselineTx,

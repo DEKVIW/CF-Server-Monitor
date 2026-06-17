@@ -45,6 +45,7 @@ export async function initDatabase(db) {
         traffic_tx_baseline REAL DEFAULT 0,
         traffic_reset_day INTEGER DEFAULT 1,
         traffic_count_mode TEXT DEFAULT 'sum',
+        traffic_iface TEXT DEFAULT '',
         is_hidden TEXT DEFAULT '0',
         sort_order INTEGER DEFAULT 0
       )

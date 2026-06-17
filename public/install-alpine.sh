@@ -150,6 +150,25 @@ stop_old_service() {
 # ---------------------------------------------------------------
 # 注入探针脚本（内部使用 bash，保证语法兼容）
 # ---------------------------------------------------------------
+sanitize_iface_list() {
+    printf '%s' "${1:-}" | awk -F',' '
+    function trim(s) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+        return s
+    }
+    {
+        for (i = 1; i <= NF && count < 8; i++) {
+            item = trim($i)
+            if (item ~ /^[A-Za-z0-9_.:-]+$/ && length(item) <= 32 && !seen[item]) {
+                out = out ? out "," item : item
+                seen[item] = 1
+                count++
+            }
+        }
+    }
+    END { print out }'
+}
+
 create_script() {
     local report_interval=${1:-60}
     local ping_type=${2:-http}
@@ -176,6 +195,7 @@ CU_NODE="${7:-}"
 CM_NODE="${8:-}"
 BD_NODE="${9:-}"
 RESET_DAY="${10:-1}"
+TRAFFIC_IFACE="${11:-}"
 
 # 严苛环境下的规范 JSON 字段转义函数
 escape_json() {
@@ -194,10 +214,88 @@ safe_div() {
     if [ "${den}" -eq 0 ]; then echo "${def}"; else echo $(( num / den )); fi
 }
 
-get_net_bytes() {
+is_valid_iface() {
+    local iface="${1:-}"
+    [ -n "${iface}" ] && [ "${#iface}" -le 32 ] && printf '%s' "${iface}" | grep -Eq '^[A-Za-z0-9_.:-]+$'
+}
+
+is_ignored_iface() {
+    local iface="${1:-}"
+    case "${iface}" in
+        lo|docker*|veth*|br-*|virbr*|vmbr*|vnet*|kube*|cni*|flannel*|calico*|tun*|tap*|wg*|tailscale*|zt*|fw*|Meta*|ifb*|dummy*|sit*|ip6tnl*|gre*|gretap*|ipip*|he-ipv6*|ipv6net*|warp*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+normalize_iface_list() {
+    local raw="${1:-}"
+    local old_ifs="${IFS}"
+    local item out="" count=0
+    IFS=','
+    for item in ${raw}; do
+        IFS="${old_ifs}"
+        item=$(printf '%s' "${item}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if is_valid_iface "${item}"; then
+            case ",${out}," in
+                *,"${item}",*) ;;
+                *)
+                    if [ "${count}" -lt 8 ]; then
+                        [ -n "${out}" ] && out="${out},${item}" || out="${item}"
+                        count=$((count + 1))
+                    fi
+                    ;;
+            esac
+        fi
+        IFS=','
+    done
+    IFS="${old_ifs}"
+    echo "${out}"
+}
+
+get_default_iface() {
+    local iface=""
+    command -v ip >/dev/null 2>&1 || return 0
+    iface=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+    if is_valid_iface "${iface}" && ! is_ignored_iface "${iface}"; then
+        echo "${iface}"
+    fi
+}
+
+sum_selected_net_bytes() {
+    local wanted="${1:-}"
+    [ -n "${wanted}" ] || return 1
+    awk -v wanted="${wanted}" '
+    BEGIN {
+        split(wanted, names, ",")
+        for (i in names) want[names[i]] = 1
+    }
+    NR > 2 {
+        iface = $1
+        sub(/:$/, "", iface)
+        if (want[iface]) {
+            rx += $2 + 0
+            tx += $10 + 0
+            kept += 1
+        }
+    }
+    END {
+        if (kept > 0) {
+            printf "%.0f %.0f\n", rx, tx
+        } else {
+            exit 1
+        }
+    }' /proc/net/dev 2>/dev/null
+}
+
+sum_auto_net_bytes() {
     awk '
     function ignored_iface(iface) {
-        return (iface == "lo" || iface ~ /^(docker|veth|br-|virbr|vmbr|vnet|kube|cni|flannel|calico|tun|tap|wg|tailscale|zt|fw|Meta|ifb|dummy)/)
+        return (iface == "lo" || iface ~ /^(docker|veth|br-|virbr|vmbr|vnet|kube|cni|flannel|calico|tun|tap|wg|tailscale|zt|fw|Meta|ifb|dummy|sit|ip6tnl|gre|gretap|ipip|he-ipv6|ipv6net|warp)/)
+    }
+    function preferred_iface(iface) {
+        return (iface ~ /^(eth|en|wl|venet)[A-Za-z0-9_.:-]*$/)
     }
     NR > 2 {
         iface = $1
@@ -206,19 +304,42 @@ get_net_bytes() {
         iface_tx = $10 + 0
         all_rx += iface_rx
         all_tx += iface_tx
+        all_kept += 1
         if (!ignored_iface(iface)) {
             rx += iface_rx
             tx += iface_tx
             kept += 1
+            if (preferred_iface(iface)) {
+                preferred_rx += iface_rx
+                preferred_tx += iface_tx
+                preferred_kept += 1
+            }
         }
     }
     END {
-        if (kept > 0) {
+        if (preferred_kept > 0) {
+            printf "%.0f %.0f\n", preferred_rx, preferred_tx
+        } else if (kept > 0) {
             printf "%.0f %.0f\n", rx, tx
         } else {
             printf "%.0f %.0f\n", all_rx, all_tx
         }
-    }' /proc/net/dev 2>/dev/null || echo "0 0";
+    }' /proc/net/dev 2>/dev/null
+}
+
+get_net_bytes() {
+    local selected default_iface
+    selected=$(normalize_iface_list "${TRAFFIC_IFACE:-}")
+    if [ -n "${selected}" ] && sum_selected_net_bytes "${selected}"; then
+        return
+    fi
+
+    default_iface=$(get_default_iface 2>/dev/null || true)
+    if [ -n "${default_iface}" ] && sum_selected_net_bytes "${default_iface}"; then
+        return
+    fi
+
+    sum_auto_net_bytes || echo "0 0"
 }
 
 # ------------------ 月度流量追踪模块 ------------------
@@ -595,9 +716,10 @@ create_service() {
     local esc_cm; esc_cm=$(printf '%s' "$cm_node" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_bd; esc_bd=$(printf '%s' "$bd_node" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_reset_day; esc_reset_day=$(printf '%s' "$RESET_DAY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    local esc_iface; esc_iface=$(printf '%s' "$TRAFFIC_IFACE" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
     local exec_line
-    exec_line="/bin/bash \"${SCRIPT_FILE}\" \"${esc_id}\" \"${esc_sec}\" \"${esc_url}\" \"${REPORT_INTERVAL}\" \"${esc_ping}\" \"${esc_ct}\" \"${esc_cu}\" \"${esc_cm}\" \"${esc_bd}\" \"${esc_reset_day}\""
+    exec_line="/bin/bash \"${SCRIPT_FILE}\" \"${esc_id}\" \"${esc_sec}\" \"${esc_url}\" \"${REPORT_INTERVAL}\" \"${esc_ping}\" \"${esc_ct}\" \"${esc_cu}\" \"${esc_cm}\" \"${esc_bd}\" \"${esc_reset_day}\" \"${esc_iface}\""
 
     if [ "$INIT_SYSTEM" = "openrc" ]; then
         step "构建 OpenRC init 脚本..."
@@ -607,7 +729,7 @@ create_service() {
 
 description="CF Server Monitor Probe Agent"
 command="/bin/bash"
-command_args="${SCRIPT_FILE} ${esc_id} ${esc_sec} ${esc_url} ${REPORT_INTERVAL} ${esc_ping} ${esc_ct} ${esc_cu} ${esc_cm} ${esc_bd} ${esc_reset_day}"
+command_args="${SCRIPT_FILE} ${esc_id} ${esc_sec} ${esc_url} ${REPORT_INTERVAL} ${esc_ping} ${esc_ct} ${esc_cu} ${esc_cm} ${esc_bd} ${esc_reset_day} ${esc_iface}"
 command_background="yes"
 pidfile="${PID_FILE}"
 output_log="${LOG_FILE}"
@@ -718,6 +840,7 @@ install_probe() {
     CM_NODE=""
     BD_NODE=""
     RESET_DAY=""
+    TRAFFIC_IFACE=""
 
     for arg in "$@"; do
         case "$arg" in
@@ -731,6 +854,7 @@ install_probe() {
             -cm=*) CM_NODE="${arg#-cm=}" ;;
             -bd=*) BD_NODE="${arg#-bd=}" ;;
             -reset_day=*) RESET_DAY="${arg#-reset_day=}" ;;
+            -iface=*) TRAFFIC_IFACE="${arg#-iface=}" ;;
         esac
     done
 
@@ -768,6 +892,7 @@ install_probe() {
     check_root
     detect_os
     install_deps
+    TRAFFIC_IFACE=$(sanitize_iface_list "${TRAFFIC_IFACE:-}")
     stop_old_service
     create_script "$REPORT_INTERVAL" "$PING_TYPE" "$CT_NODE" "$CU_NODE" "$CM_NODE" "$BD_NODE" "$RESET_DAY"
     create_service "$CT_NODE" "$CU_NODE" "$CM_NODE" "$BD_NODE"

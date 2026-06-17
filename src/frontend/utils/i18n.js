@@ -207,7 +207,9 @@ const translations = reactive({
     trafficCountMode: 'Traffic Mode',
     trafficBaselineTip: 'Enter the provider panel used traffic. Saving uses current probe traffic as the calibration point.',
     trafficResetDay: 'Traffic Reset Day',
-    trafficResetDayTip: 'Day of month to reset traffic counter (1-31). Automatically adjusts for months with fewer days.'
+    trafficResetDayTip: 'Day of month to reset traffic counter (1-31). Automatically adjusts for months with fewer days.',
+    trafficIface: 'Traffic NIC',
+    trafficIfaceTip: 'Leave empty for auto. Use eth0 or comma-separated NICs only when needed.'
   },
   zh: {
     theme: '主题',
