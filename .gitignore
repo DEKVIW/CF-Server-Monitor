@@ -36,3 +36,6 @@ Thumbs.db
 # Cloudflare Workers
 .wrangler/
 dist/
+
+# Local update notes
+docs/更新记录/
