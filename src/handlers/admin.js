@@ -78,6 +78,30 @@ function sanitizeTrafficIface(value) {
     .join(',');
 }
 
+function getTrafficPeriodStart(resetDay, nowMs = Date.now()) {
+  const safeDay = Math.min(31, Math.max(1, parseInt(resetDay) || 1));
+  const now = new Date(nowMs);
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth();
+  const day = now.getUTCDate();
+  const daysThisMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const targetDay = Math.min(safeDay, daysThisMonth);
+
+  if (day >= targetDay) {
+    return Math.floor(Date.UTC(year, month, targetDay, 0, 0, 0) / 1000);
+  }
+
+  month -= 1;
+  if (month < 0) {
+    month = 11;
+    year -= 1;
+  }
+
+  const daysPrevMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const prevTargetDay = Math.min(safeDay, daysPrevMonth);
+  return Math.floor(Date.UTC(year, month, prevTargetDay, 0, 0, 0) / 1000);
+}
+
 export async function handleAdminAPI(request, env, sys) {
   try {
     const data = await request.json();
@@ -393,13 +417,14 @@ export async function handleAdminAPI(request, env, sys) {
       const currentMonthlyTx = parseFloat(currentMetrics?.net_tx_monthly) || 0;
       const baselineRx = hasBaselineInput ? currentMonthlyRx : 0;
       const baselineTx = hasBaselineInput ? currentMonthlyTx : 0;
+      const baselinePeriodStart = hasBaselineInput ? getTrafficPeriodStart(resetDay) : 0;
 
       if (name && typeof name === 'string' && name.trim().length > 0 && name.length <= 100) {
         await env.DB.prepare(`
           UPDATE servers 
           SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
               report_interval = ?, ping_mode = ?, traffic_iface = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -415,6 +440,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineBytes,
           baselineRx,
           baselineTx,
+          baselinePeriodStart,
           resetDay,
           countMode,
           is_hidden || '0',
@@ -425,7 +451,7 @@ export async function handleAdminAPI(request, env, sys) {
           UPDATE servers 
           SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
               report_interval = ?, ping_mode = ?, traffic_iface = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_reset_day = ?, traffic_count_mode = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -440,6 +466,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineBytes,
           baselineRx,
           baselineTx,
+          baselinePeriodStart,
           resetDay,
           countMode,
           is_hidden || '0',

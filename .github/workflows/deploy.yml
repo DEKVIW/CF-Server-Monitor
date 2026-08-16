@@ -71,7 +71,7 @@ jobs:
           sed -i "s|SECRET_PLACEHOLDER|${{ secrets.API_SECRET }}|g" wrangler.toml
           sed -i "s|USER_NAME_PLACEHOLDER|${{ secrets.API_USER_NAME }}|g" wrangler.toml
 
-          echo "✅ wrangler.toml 已生成"
+          echo "wrangler.toml generated"
 
       # wrangler v4 的 `deploy` 会自动根据 wrangler.toml 中的 [[durable_objects.bindings]]
       # 声明创建 DO namespace（幂等：已存在则跳过），无需单独命令。

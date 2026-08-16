@@ -134,8 +134,12 @@ export const getTrafficUsage = (server) => {
   const baseline = parseFloat(server?.traffic_used_baseline) || 0
   const baselineRx = parseFloat(server?.traffic_rx_baseline) || 0
   const baselineTx = parseFloat(server?.traffic_tx_baseline) || 0
+  const baselinePeriodStart = parseFloat(server?.traffic_baseline_period_start) || 0
+  const periodStart = parseFloat(server?.traffic_period_start) || 0
   const mode = ['sum', 'rx', 'tx'].includes(server?.traffic_count_mode) ? server.traffic_count_mode : 'sum'
-  const baselineExpired = (baselineRx > 0 && monthlyRx < baselineRx) || (baselineTx > 0 && monthlyTx < baselineTx)
+  const periodChanged = baselinePeriodStart > 0 && periodStart > 0 && periodStart !== baselinePeriodStart
+  const monthlyDropped = (baselineRx > 0 && monthlyRx < baselineRx) || (baselineTx > 0 && monthlyTx < baselineTx)
+  const baselineExpired = periodChanged || monthlyDropped
   const activeBaseline = baselineExpired ? 0 : baseline
   const rxDelta = baselineExpired ? monthlyRx : Math.max(0, monthlyRx - baselineRx)
   const txDelta = baselineExpired ? monthlyTx : Math.max(0, monthlyTx - baselineTx)

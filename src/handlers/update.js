@@ -18,6 +18,7 @@ function buildPayloadForBroadcast(id, metrics, extra = {}) {
     net_tx: metrics.net_tx ?? null,
     net_rx_monthly: metrics.net_rx_monthly ?? null,
     net_tx_monthly: metrics.net_tx_monthly ?? null,
+    traffic_period_start: metrics.traffic_period_start ?? null,
     processes: metrics.processes ?? null,
     tcp_conn: metrics.tcp_conn ?? null,
     udp_conn: metrics.udp_conn ?? null,

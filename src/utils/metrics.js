@@ -11,6 +11,7 @@ export function mergeMetricsIntoServer(server, metrics) {
   server.net_tx = metrics.net_tx || 0;
   server.net_rx_monthly = metrics.net_rx_monthly || 0;
   server.net_tx_monthly = metrics.net_tx_monthly || 0;
+  server.traffic_period_start = metrics.traffic_period_start || 0;
   server.processes = metrics.processes || 0;
   server.tcp_conn = metrics.tcp_conn || 0;
   server.udp_conn = metrics.udp_conn || 0;

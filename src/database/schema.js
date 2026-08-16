@@ -43,6 +43,7 @@ export async function initDatabase(db) {
         traffic_used_baseline REAL DEFAULT 0,
         traffic_rx_baseline REAL DEFAULT 0,
         traffic_tx_baseline REAL DEFAULT 0,
+        traffic_baseline_period_start REAL DEFAULT 0,
         traffic_reset_day INTEGER DEFAULT 1,
         traffic_count_mode TEXT DEFAULT 'sum',
         traffic_iface TEXT DEFAULT '',
@@ -87,6 +88,7 @@ export async function initDatabase(db) {
         boot_time TEXT DEFAULT '',
         net_rx_monthly REAL DEFAULT 0,
         net_tx_monthly REAL DEFAULT 0,
+        traffic_period_start REAL DEFAULT 0,
         FOREIGN KEY (server_id) REFERENCES servers(id)
       )
     `).run();
@@ -267,7 +269,7 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
         ram_total, ram_used, swap_total, swap_used,
         disk_total, disk_used,
         cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,
-        net_rx_monthly, net_tx_monthly
+        net_rx_monthly, net_tx_monthly, traffic_period_start
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -276,7 +278,7 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
         ?, ?, ?, ?,
         ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?
+        ?, ?, ?
       )
     `).bind(
       serverId,
@@ -311,7 +313,8 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
       metrics.ip_v6 || '0',
       metrics.boot_time || '',
       parseFloat(metrics.net_rx_monthly) || 0,
-      parseFloat(metrics.net_tx_monthly) || 0
+      parseFloat(metrics.net_tx_monthly) || 0,
+      parseFloat(metrics.traffic_period_start) || 0
     ).run();
   } catch (e) {
     console.error('保存历史数据失败:', e);

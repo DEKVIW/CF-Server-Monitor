@@ -86,6 +86,7 @@ async function addServerColumns(db) {
       traffic_used_baseline: "REAL DEFAULT 0",
       traffic_rx_baseline: "REAL DEFAULT 0",
       traffic_tx_baseline: "REAL DEFAULT 0",
+      traffic_baseline_period_start: "REAL DEFAULT 0",
       traffic_reset_day: "INTEGER DEFAULT 1",
       traffic_count_mode: "TEXT DEFAULT 'sum'",
       traffic_iface: "TEXT DEFAULT ''"
@@ -145,7 +146,8 @@ async function addHistoryColumns(db) {
       ip_v6: "TEXT DEFAULT '0'",
       boot_time: "TEXT DEFAULT ''",
       net_rx_monthly: "REAL DEFAULT 0",
-      net_tx_monthly: "REAL DEFAULT 0"
+      net_tx_monthly: "REAL DEFAULT 0",
+      traffic_period_start: "REAL DEFAULT 0"
     };
     
     let added = 0;
@@ -226,6 +228,7 @@ async function optimizeMetricsHistoryRowid(db) {
         boot_time TEXT DEFAULT '',
         net_rx_monthly REAL DEFAULT 0,
         net_tx_monthly REAL DEFAULT 0,
+        traffic_period_start REAL DEFAULT 0,
         FOREIGN KEY (server_id) REFERENCES servers(id)
       )
     `).run();
@@ -239,7 +242,7 @@ async function optimizeMetricsHistoryRowid(db) {
         ram_total, ram_used, swap_total, swap_used,
         disk_total, disk_used,
         cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,
-        net_rx_monthly, net_tx_monthly
+        net_rx_monthly, net_tx_monthly, traffic_period_start
       )
       SELECT
         id, server_id, timestamp, cpu, ram, disk, load_avg,
@@ -249,7 +252,7 @@ async function optimizeMetricsHistoryRowid(db) {
         ram_total, ram_used, swap_total, swap_used,
         disk_total, disk_used,
         cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,
-        COALESCE(net_rx_monthly, 0), COALESCE(net_tx_monthly, 0)
+        COALESCE(net_rx_monthly, 0), COALESCE(net_tx_monthly, 0), COALESCE(traffic_period_start, 0)
       FROM metrics_history
     `).run();
 
