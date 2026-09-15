@@ -458,6 +458,11 @@
             </div>
 
             <div class="form-group">
+              <label class="form-label">{{ trans.trafficResetTz || 'Traffic Reset TZ' }}</label>
+              <input type="number" name="edit_traffic_reset_tz" autocomplete="off" v-model="editForm.traffic_reset_tz" min="-12" max="14" class="form-input" placeholder="8">
+            </div>
+
+            <div class="form-group">
               <label class="form-label">{{ trans.trafficUsedBaseline || 'Panel Used' }}</label>
               <input type="text" name="edit_traffic_used_baseline" autocomplete="off" v-model="editForm.traffic_used_baseline" class="form-input" placeholder="e.g. 261.5GB">
             </div>
@@ -606,6 +611,14 @@
             <input type="number" name="reset_day" autocomplete="off" v-model="resetDay" min="1" max="31" class="form-input" placeholder="1" style="width: 100px;">
             <p class="text-muted text-sm mt-2">
               <span class="warning-icon">[i]</span> {{ trans.trafficResetDayTip }}
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">{{ trans.trafficResetTz || 'Traffic Reset TZ' }}</label>
+            <input type="number" name="reset_tz" autocomplete="off" v-model="resetTz" min="-12" max="14" class="form-input" placeholder="8" style="width: 100px;">
+            <p class="text-muted text-sm mt-2">
+              <span class="warning-icon">[i]</span> {{ trans.trafficResetTzTip || 'Timezone offset for traffic reset. Use 8 for Beijing time.' }}
             </p>
           </div>
 
@@ -779,6 +792,7 @@ const editForm = ref({
   ping_mode: 'http',
   traffic_used_baseline: '',
   traffic_reset_day: 1,
+  traffic_reset_tz: 8,
   traffic_count_mode: 'sum',
   traffic_iface: '',
   is_hidden: false
@@ -806,6 +820,7 @@ const customCu = ref('')
 const customCm = ref('')
 const customBd = ref('')
 const resetDay = ref(1)
+const resetTz = ref(8)
 const trafficIface = ref('')
 const copiedCmd = ref(false)
 
@@ -1075,14 +1090,21 @@ const sanitizeTrafficIface = (value) => {
     .join(',')
 }
 
+const sanitizeResetTz = (value) => {
+  const parsed = parseInt(value)
+  if (!Number.isFinite(parsed)) return 8
+  return Math.min(14, Math.max(-12, parsed))
+}
+
 const getInstallCommand = (server) => {
   const HOST = API_BASE
   const serverId = typeof server === 'string' ? server : server.id
   const day = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
+  const tz = typeof server === 'string' ? 8 : sanitizeResetTz(server.traffic_reset_tz ?? 8)
   const interval = typeof server === 'string' ? 60 : (server.report_interval || 60)
   const ping = typeof server === 'string' ? 'http' : (server.ping_mode || 'http')
   const iface = typeof server === 'string' ? '' : sanitizeTrafficIface(server.traffic_iface)
-  let cmd = `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${interval} -ping=${ping} -reset_day=${day}`
+  let cmd = `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${interval} -ping=${ping} -reset_day=${day} -reset_tz=${tz}`
   if (iface) cmd += ` -iface=${iface}`
   return cmd
 }
@@ -1101,6 +1123,7 @@ const copyCmd = (server) => {
   customCm.value = settings.value.custom_cm
   customBd.value = settings.value.custom_bd
   resetDay.value = typeof server === 'string' ? 1 : (server.traffic_reset_day || 1)
+  resetTz.value = typeof server === 'string' ? 8 : sanitizeResetTz(server.traffic_reset_tz ?? 8)
   trafficIface.value = typeof server === 'string' ? '' : (server.traffic_iface || '')
   copiedCmd.value = false
   showCopyModal.value = true
@@ -1113,7 +1136,7 @@ const getCustomInstallCommand = () => {
   }
   const shell = targetOs.value === 'alpine' ? 'sh' : 'bash'
   const script = targetOs.value === 'alpine' ? 'install-alpine.sh' : 'install.sh'
-  let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value || 1}`
+  let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value || 1} -reset_tz=${sanitizeResetTz(resetTz.value)}`
   const iface = sanitizeTrafficIface(trafficIface.value)
   if (iface) cmd += ` -iface=${iface}`
   if (customCt.value) cmd += ` -ct=${customCt.value}`
@@ -1169,6 +1192,7 @@ const openEditModal = (server) => {
     ping_mode: server.ping_mode || 'http',
     traffic_used_baseline: trafficUsage ? formatBytes(trafficUsage.usedBytes) : '',
     traffic_reset_day: server.traffic_reset_day || 1,
+    traffic_reset_tz: sanitizeResetTz(server.traffic_reset_tz ?? 8),
     traffic_count_mode: server.traffic_count_mode || 'sum',
     traffic_iface: server.traffic_iface || '',
     is_hidden: server.is_hidden === '1'
@@ -1194,6 +1218,7 @@ const saveEdit = async () => {
       ping_mode: editForm.value.ping_mode,
       traffic_used_baseline: editForm.value.traffic_used_baseline,
       traffic_reset_day: editForm.value.traffic_reset_day,
+      traffic_reset_tz: sanitizeResetTz(editForm.value.traffic_reset_tz),
       traffic_count_mode: editForm.value.traffic_count_mode,
       traffic_iface: sanitizeTrafficIface(editForm.value.traffic_iface),
       is_hidden: editForm.value.is_hidden ? '1' : '0'

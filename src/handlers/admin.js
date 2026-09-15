@@ -78,9 +78,17 @@ function sanitizeTrafficIface(value) {
     .join(',');
 }
 
-function getTrafficPeriodStart(resetDay, nowMs = Date.now()) {
+function sanitizeResetTz(value) {
+  const parsed = parseInt(value);
+  if (!Number.isFinite(parsed)) return 8;
+  return Math.min(14, Math.max(-12, parsed));
+}
+
+function getTrafficPeriodStart(resetDay, resetTz = 8, nowMs = Date.now()) {
   const safeDay = Math.min(31, Math.max(1, parseInt(resetDay) || 1));
-  const now = new Date(nowMs);
+  const tz = sanitizeResetTz(resetTz);
+  const tzOffsetMs = tz * 60 * 60 * 1000;
+  const now = new Date(nowMs + tzOffsetMs);
   let year = now.getUTCFullYear();
   let month = now.getUTCMonth();
   const day = now.getUTCDate();
@@ -88,7 +96,7 @@ function getTrafficPeriodStart(resetDay, nowMs = Date.now()) {
   const targetDay = Math.min(safeDay, daysThisMonth);
 
   if (day >= targetDay) {
-    return Math.floor(Date.UTC(year, month, targetDay, 0, 0, 0) / 1000);
+    return Math.floor((Date.UTC(year, month, targetDay, 0, 0, 0) - tzOffsetMs) / 1000);
   }
 
   month -= 1;
@@ -99,7 +107,7 @@ function getTrafficPeriodStart(resetDay, nowMs = Date.now()) {
 
   const daysPrevMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const prevTargetDay = Math.min(safeDay, daysPrevMonth);
-  return Math.floor(Date.UTC(year, month, prevTargetDay, 0, 0, 0) / 1000);
+  return Math.floor((Date.UTC(year, month, prevTargetDay, 0, 0, 0) - tzOffsetMs) / 1000);
 }
 
 export async function handleAdminAPI(request, env, sys) {
@@ -395,7 +403,7 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, report_interval, ping_mode, traffic_used_baseline, traffic_reset_day, traffic_count_mode, traffic_iface, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, report_interval, ping_mode, traffic_used_baseline, traffic_reset_day, traffic_reset_tz, traffic_count_mode, traffic_iface, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return new Response(JSON.stringify({ error: '服务器 ID 无效' }), { 
           status: 400,
@@ -406,6 +414,7 @@ export async function handleAdminAPI(request, env, sys) {
       const hasBaselineInput = traffic_used_baseline !== undefined && String(traffic_used_baseline).trim() !== '';
       const baselineBytes = hasBaselineInput ? parseTrafficToBytes(traffic_used_baseline) : 0;
       const resetDay = Math.min(31, Math.max(1, parseInt(traffic_reset_day) || 1));
+      const resetTz = sanitizeResetTz(traffic_reset_tz);
       const countMode = ['sum', 'rx', 'tx'].includes(traffic_count_mode) ? traffic_count_mode : 'sum';
       const parsedInterval = parseInt(report_interval);
       const reportInterval = [30, 60, 120, 180].includes(parsedInterval) ? parsedInterval : 60;
@@ -417,14 +426,14 @@ export async function handleAdminAPI(request, env, sys) {
       const currentMonthlyTx = parseFloat(currentMetrics?.net_tx_monthly) || 0;
       const baselineRx = hasBaselineInput ? currentMonthlyRx : 0;
       const baselineTx = hasBaselineInput ? currentMonthlyTx : 0;
-      const baselinePeriodStart = hasBaselineInput ? getTrafficPeriodStart(resetDay) : 0;
+      const baselinePeriodStart = hasBaselineInput ? getTrafficPeriodStart(resetDay, resetTz) : 0;
 
       if (name && typeof name === 'string' && name.trim().length > 0 && name.length <= 100) {
         await env.DB.prepare(`
           UPDATE servers 
           SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
               report_interval = ?, ping_mode = ?, traffic_iface = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_count_mode = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_reset_tz = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -442,6 +451,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineTx,
           baselinePeriodStart,
           resetDay,
+          resetTz,
           countMode,
           is_hidden || '0',
           id
@@ -451,7 +461,7 @@ export async function handleAdminAPI(request, env, sys) {
           UPDATE servers 
           SET server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?,
               report_interval = ?, ping_mode = ?, traffic_iface = ?,
-              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_count_mode = ?,
+              traffic_used_baseline = ?, traffic_rx_baseline = ?, traffic_tx_baseline = ?, traffic_baseline_period_start = ?, traffic_reset_day = ?, traffic_reset_tz = ?, traffic_count_mode = ?,
               is_hidden = ? 
           WHERE id = ?
         `).bind(
@@ -468,6 +478,7 @@ export async function handleAdminAPI(request, env, sys) {
           baselineTx,
           baselinePeriodStart,
           resetDay,
+          resetTz,
           countMode,
           is_hidden || '0',
           id

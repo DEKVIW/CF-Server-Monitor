@@ -208,6 +208,8 @@ const translations = reactive({
     trafficBaselineTip: 'Enter the provider panel used traffic. Saving uses current probe traffic as the calibration point.',
     trafficResetDay: 'Traffic Reset Day',
     trafficResetDayTip: 'Day of month to reset traffic counter (1-31). Automatically adjusts for months with fewer days.',
+    trafficResetTz: 'Traffic Reset TZ',
+    trafficResetTzTip: 'Timezone offset for traffic reset. Use 8 for Beijing time.',
     trafficIface: 'Traffic NIC',
     trafficIfaceTip: 'Leave empty for auto. Use eth0 or comma-separated NICs only when needed.'
   },
@@ -413,7 +415,9 @@ const translations = reactive({
     monthlyTraffic: '月度流量',
     monthlyTrafficLimit: '月度流量限制',
     trafficResetDay: '流量重置日',
-    trafficResetDayTip: '每月重置流量计数器的日期（1-31）。对于天数不足的月份会自动调整。'
+    trafficResetDayTip: '每月重置流量计数器的日期（1-31）。对于天数不足的月份会自动调整。',
+    trafficResetTz: '流量重置时区',
+    trafficResetTzTip: '流量重置日期按这个时区判断。北京时间填写 8。'
   }
 })
 

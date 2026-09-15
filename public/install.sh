@@ -110,6 +110,17 @@ sanitize_iface_list() {
     END { print out }'
 }
 
+normalize_reset_tz() {
+    local value="${1:-8}"
+    case "$value" in
+        -[0-9]|-[0-9][0-9]|[0-9]|[0-9][0-9]) ;;
+        *) value=8 ;;
+    esac
+    [ "$value" -lt -12 ] 2>/dev/null && value=-12
+    [ "$value" -gt 14 ] 2>/dev/null && value=14
+    echo "$value"
+}
+
 create_script() {
     local report_interval=${1:-60}
     local ping_type=${2:-http}
@@ -136,6 +147,7 @@ CM_NODE="${8:-}"
 BD_NODE="${9:-}"
 RESET_DAY="${10:-1}"
 TRAFFIC_IFACE="${11:-}"
+RESET_TZ="${12:-8}"
 
 # 严苛环境下的规范 JSON 字段转义函数
 escape_json() {
@@ -287,15 +299,30 @@ get_net_bytes() {
 TRAFFIC_DATA_DIR="/var/lib/cf-probe"
 TRAFFIC_DATA_FILE="${TRAFFIC_DATA_DIR}/traffic.dat"
 
-# 获取当月账单周期起始时间戳（UTC+0）
+normalize_reset_tz() {
+    local value="${1:-8}"
+    case "$value" in
+        -[0-9]|-[0-9][0-9]|[0-9]|[0-9][0-9]) ;;
+        *) value=8 ;;
+    esac
+    [ "$value" -lt -12 ] 2>/dev/null && value=-12
+    [ "$value" -gt 14 ] 2>/dev/null && value=14
+    echo "$value"
+}
+
+# 获取当月账单周期起始时间戳；reset_tz 是重置日所在时区（默认 UTC+8）
 get_period_start_ts() {
     local reset_day="$1"
     local now_ts="$2"
+    local reset_tz
+    reset_tz=$(normalize_reset_tz "${3:-8}")
+    local offset_seconds=$((reset_tz * 3600))
+    local shifted_ts=$((now_ts + offset_seconds))
     local year month day
-    # 使用 UTC 时间获取年月日
-    year=$(date -u -d "@${now_ts}" '+%Y' 2>/dev/null || date -u -r "${now_ts}" '+%Y' 2>/dev/null)
-    month=$(date -u -d "@${now_ts}" '+%m' 2>/dev/null || date -u -r "${now_ts}" '+%m' 2>/dev/null)
-    day=$(date -u -d "@${now_ts}" '+%d' 2>/dev/null || date -u -r "${now_ts}" '+%d' 2>/dev/null)
+    # 先按重置时区偏移，再用 UTC 日历计算“当地日期”
+    year=$(date -u -d "@${shifted_ts}" '+%Y' 2>/dev/null || date -u -r "${shifted_ts}" '+%Y' 2>/dev/null)
+    month=$(date -u -d "@${shifted_ts}" '+%m' 2>/dev/null || date -u -r "${shifted_ts}" '+%m' 2>/dev/null)
+    day=$(date -u -d "@${shifted_ts}" '+%d' 2>/dev/null || date -u -r "${shifted_ts}" '+%d' 2>/dev/null)
     
     local target_day="$reset_day"
     # 处理月份最后一天：2月最多29天，4/6/9/11月最多30天
@@ -306,10 +333,10 @@ get_period_start_ts() {
     
     local period_start_ts
     if [ "$day" -ge "$target_day" ]; then
-        # 当月重置日当天及之后（UTC时间 00:00:00）
+        # 重置时区当地当月重置日 00:00:00
         period_start_ts=$(date -u -d "${year}-${month}-${target_day} 00:00:00" '+%s' 2>/dev/null || date -u -r "${now_ts}" '+%s' 2>/dev/null)
     else
-        # 上个月重置日（UTC时间 00:00:00）
+        # 重置时区当地上个月重置日 00:00:00
         local prev_month=$((month - 1))
         [ "$prev_month" -eq 0 ] && { prev_month=12; year=$((year - 1)); }
         local prev_month_str=$(printf "%02d" "$prev_month")
@@ -319,7 +346,7 @@ get_period_start_ts() {
         esac
         period_start_ts=$(date -u -d "${year}-${prev_month_str}-${target_day} 00:00:00" '+%s' 2>/dev/null || date -u -r "${now_ts}" '+%s' 2>/dev/null)
     fi
-    echo "$period_start_ts"
+    echo $((period_start_ts - offset_seconds))
 }
 
 # 计算月度流量（自动持久化）
@@ -327,6 +354,7 @@ calc_monthly_traffic() {
     local current_rx="$1"
     local current_tx="$2"
     local reset_day="${RESET_DAY:-1}"
+    local reset_tz="${RESET_TZ:-8}"
     local now_ts
     now_ts=$(date '+%s')
     
@@ -353,7 +381,7 @@ calc_monthly_traffic() {
     
     # 计算当前账单周期起始
     local period_start_ts
-    period_start_ts=$(get_period_start_ts "$reset_day" "$now_ts")
+    period_start_ts=$(get_period_start_ts "$reset_day" "$now_ts" "$reset_tz")
     
     # 检测是否是首次运行（没有历史记录）
     local rx_delta=0 tx_delta=0
@@ -691,6 +719,7 @@ create_service() {
     local esc_bd; esc_bd=$(printf '%s' "$bd_node" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_reset_day; esc_reset_day=$(printf '%s' "$RESET_DAY" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_iface; esc_iface=$(printf '%s' "$TRAFFIC_IFACE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    local esc_reset_tz; esc_reset_tz=$(printf '%s' "$RESET_TZ" | sed 's/\\/\\\\/g; s/"/\\"/g')
     
     # 完全剔除 MemoryHigh/MemoryMax/CPUQuota 等低版本 Systemd 会抛错的非泛用特性
     # 仅使用全版本 Linux 完美兼容的 Nice 权重调配及 IO 闲置调度
@@ -702,7 +731,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash "${SCRIPT_FILE}" "${esc_id}" "${esc_sec}" "${esc_url}" "${REPORT_INTERVAL}" "${esc_ping}" "${esc_ct}" "${esc_cu}" "${esc_cm}" "${esc_bd}" "${esc_reset_day}" "${esc_iface}"
+ExecStart=/bin/bash "${SCRIPT_FILE}" "${esc_id}" "${esc_sec}" "${esc_url}" "${REPORT_INTERVAL}" "${esc_ping}" "${esc_ct}" "${esc_cu}" "${esc_cm}" "${esc_bd}" "${esc_reset_day}" "${esc_iface}" "${esc_reset_tz}"
 Restart=always
 RestartSec=5
 User=root
@@ -750,6 +779,7 @@ install_probe() {
     BD_NODE=""
     RESET_DAY=""
     TRAFFIC_IFACE=""
+    RESET_TZ=""
 
     for arg in "$@"; do
         case "$arg" in
@@ -763,6 +793,7 @@ install_probe() {
             -cm=*) CM_NODE="${arg#-cm=}" ;;
             -bd=*) BD_NODE="${arg#-bd=}" ;;
             -reset_day=*) RESET_DAY="${arg#-reset_day=}" ;;
+            -reset_tz=*) RESET_TZ="${arg#-reset_tz=}" ;;
             -iface=*) TRAFFIC_IFACE="${arg#-iface=}" ;;
         esac
     done
@@ -785,18 +816,21 @@ install_probe() {
         echo "  -cm=HOST       自定义CM测试节点"
         echo "  -bd=HOST       自定义BD测试节点"
         echo "  -reset_day=N   流量重置日(1-31)，默认1"
+        echo "  -reset_tz=N    流量重置时区(-12到14)，默认8(北京时间)"
         echo ""
         echo "示例:"
         echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
         echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
         echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
         echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15 -reset_tz=8"
         exit 1
     fi
 
     REPORT_INTERVAL=${REPORT_INTERVAL:-60}
     PING_TYPE=${PING_TYPE:-http}
     RESET_DAY=${RESET_DAY:-1}
+    RESET_TZ=$(normalize_reset_tz "${RESET_TZ:-8}")
 
     print_banner
     check_root
@@ -819,6 +853,7 @@ install_probe() {
     echo -e "    ● 上报间隔    : ${REPORT_INTERVAL}秒"
     echo -e "    ● 探测类型    : ${PING_TYPE}"
     echo -e "    ● 流量重置日  : ${RESET_DAY}号"
+    echo -e "    ● 重置时区    : UTC${RESET_TZ}"
     [ -n "${CT_NODE}" ] && echo -e "    ● CT节点      : ${CT_NODE}"
     [ -n "${CU_NODE}" ] && echo -e "    ● CU节点      : ${CU_NODE}"
     [ -n "${CM_NODE}" ] && echo -e "    ● CM节点      : ${CM_NODE}"

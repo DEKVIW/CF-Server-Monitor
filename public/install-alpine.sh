@@ -169,6 +169,17 @@ sanitize_iface_list() {
     END { print out }'
 }
 
+normalize_reset_tz() {
+    local value="${1:-8}"
+    case "$value" in
+        -[0-9]|-[0-9][0-9]|[0-9]|[0-9][0-9]) ;;
+        *) value=8 ;;
+    esac
+    [ "$value" -lt -12 ] 2>/dev/null && value=-12
+    [ "$value" -gt 14 ] 2>/dev/null && value=14
+    echo "$value"
+}
+
 create_script() {
     local report_interval=${1:-60}
     local ping_type=${2:-http}
@@ -196,6 +207,7 @@ CM_NODE="${8:-}"
 BD_NODE="${9:-}"
 RESET_DAY="${10:-1}"
 TRAFFIC_IFACE="${11:-}"
+RESET_TZ="${12:-8}"
 
 # 严苛环境下的规范 JSON 字段转义函数
 escape_json() {
@@ -347,20 +359,35 @@ get_net_bytes() {
 TRAFFIC_DATA_DIR="/var/lib/cf-probe"
 TRAFFIC_DATA_FILE="${TRAFFIC_DATA_DIR}/traffic.dat"
 
-# 获取当月账单周期起始时间戳（UTC+0）
+normalize_reset_tz() {
+    local value="${1:-8}"
+    case "$value" in
+        -[0-9]|-[0-9][0-9]|[0-9]|[0-9][0-9]) ;;
+        *) value=8 ;;
+    esac
+    [ "$value" -lt -12 ] 2>/dev/null && value=-12
+    [ "$value" -gt 14 ] 2>/dev/null && value=14
+    echo "$value"
+}
+
+# 获取当月账单周期起始时间戳；reset_tz 是重置日所在时区（默认 UTC+8）
 get_period_start_ts() {
     local reset_day="$1"
     local now_ts="$2"
+    local reset_tz
+    reset_tz=$(normalize_reset_tz "${3:-8}")
+    local offset_seconds=$((reset_tz * 3600))
+    local shifted_ts=$((now_ts + offset_seconds))
     local year month day
-    # 使用 UTC 时间获取年月日（兼容 busybox date 和 GNU date）
-    if date -u -d "@${now_ts}" '+%Y' >/dev/null 2>&1; then
-        year=$(date -u -d "@${now_ts}" '+%Y')
-        month=$(date -u -d "@${now_ts}" '+%m')
-        day=$(date -u -d "@${now_ts}" '+%d')
+    # 先按重置时区偏移，再用 UTC 日历计算“当地日期”
+    if date -u -d "@${shifted_ts}" '+%Y' >/dev/null 2>&1; then
+        year=$(date -u -d "@${shifted_ts}" '+%Y')
+        month=$(date -u -d "@${shifted_ts}" '+%m')
+        day=$(date -u -d "@${shifted_ts}" '+%d')
     else
-        year=$(date -u -r "${now_ts}" '+%Y')
-        month=$(date -u -r "${now_ts}" '+%m')
-        day=$(date -u -r "${now_ts}" '+%d')
+        year=$(date -u -r "${shifted_ts}" '+%Y')
+        month=$(date -u -r "${shifted_ts}" '+%m')
+        day=$(date -u -r "${shifted_ts}" '+%d')
     fi
     
     local target_day="$reset_day"
@@ -391,7 +418,7 @@ get_period_start_ts() {
             period_start_ts=$(date -u -r "${now_ts}" '+%s')
         fi
     fi
-    echo "$period_start_ts"
+    echo $((period_start_ts - offset_seconds))
 }
 
 # 计算月度流量（自动持久化）
@@ -399,6 +426,7 @@ calc_monthly_traffic() {
     local current_rx="$1"
     local current_tx="$2"
     local reset_day="${RESET_DAY:-1}"
+    local reset_tz="${RESET_TZ:-8}"
     local now_ts
     now_ts=$(date '+%s')
     
@@ -425,7 +453,7 @@ calc_monthly_traffic() {
     
     # 计算当前账单周期起始
     local period_start_ts
-    period_start_ts=$(get_period_start_ts "$reset_day" "$now_ts")
+    period_start_ts=$(get_period_start_ts "$reset_day" "$now_ts" "$reset_tz")
     
     # 检测是否是首次运行
     local rx_delta=0 tx_delta=0
@@ -718,9 +746,10 @@ create_service() {
     local esc_bd; esc_bd=$(printf '%s' "$bd_node" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_reset_day; esc_reset_day=$(printf '%s' "$RESET_DAY" | sed 's/\\/\\\\/g; s/"/\\"/g')
     local esc_iface; esc_iface=$(printf '%s' "$TRAFFIC_IFACE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    local esc_reset_tz; esc_reset_tz=$(printf '%s' "$RESET_TZ" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
     local exec_line
-    exec_line="/bin/bash \"${SCRIPT_FILE}\" \"${esc_id}\" \"${esc_sec}\" \"${esc_url}\" \"${REPORT_INTERVAL}\" \"${esc_ping}\" \"${esc_ct}\" \"${esc_cu}\" \"${esc_cm}\" \"${esc_bd}\" \"${esc_reset_day}\" \"${esc_iface}\""
+    exec_line="/bin/bash \"${SCRIPT_FILE}\" \"${esc_id}\" \"${esc_sec}\" \"${esc_url}\" \"${REPORT_INTERVAL}\" \"${esc_ping}\" \"${esc_ct}\" \"${esc_cu}\" \"${esc_cm}\" \"${esc_bd}\" \"${esc_reset_day}\" \"${esc_iface}\" \"${esc_reset_tz}\""
 
     if [ "$INIT_SYSTEM" = "openrc" ]; then
         step "构建 OpenRC init 脚本..."
@@ -730,7 +759,7 @@ create_service() {
 
 description="CF Server Monitor Probe Agent"
 command="/bin/bash"
-command_args="${SCRIPT_FILE} ${esc_id} ${esc_sec} ${esc_url} ${REPORT_INTERVAL} ${esc_ping} ${esc_ct} ${esc_cu} ${esc_cm} ${esc_bd} ${esc_reset_day} ${esc_iface}"
+command_args="${SCRIPT_FILE} ${esc_id} ${esc_sec} ${esc_url} ${REPORT_INTERVAL} ${esc_ping} ${esc_ct} ${esc_cu} ${esc_cm} ${esc_bd} ${esc_reset_day} ${esc_iface} ${esc_reset_tz}"
 command_background="yes"
 pidfile="${PID_FILE}"
 output_log="${LOG_FILE}"
@@ -842,6 +871,7 @@ install_probe() {
     BD_NODE=""
     RESET_DAY=""
     TRAFFIC_IFACE=""
+    RESET_TZ=""
 
     for arg in "$@"; do
         case "$arg" in
@@ -855,6 +885,7 @@ install_probe() {
             -cm=*) CM_NODE="${arg#-cm=}" ;;
             -bd=*) BD_NODE="${arg#-bd=}" ;;
             -reset_day=*) RESET_DAY="${arg#-reset_day=}" ;;
+            -reset_tz=*) RESET_TZ="${arg#-reset_tz=}" ;;
             -iface=*) TRAFFIC_IFACE="${arg#-iface=}" ;;
         esac
     done
@@ -877,17 +908,20 @@ install_probe() {
         echo "  -cm=HOST       自定义CM测试节点"
         echo "  -bd=HOST       自定义BD测试节点"
         echo "  -reset_day=N   流量重置日(1-31)，默认1"
+        echo "  -reset_tz=N    流量重置时区(-12到14)，默认8(北京时间)"
         echo ""
         echo "示例:"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+        echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15 -reset_tz=8"
         exit 1
     fi
 
     REPORT_INTERVAL=${REPORT_INTERVAL:-60}
     PING_TYPE=${PING_TYPE:-http}
     RESET_DAY=${RESET_DAY:-1}
+    RESET_TZ=$(normalize_reset_tz "${RESET_TZ:-8}")
 
     print_banner
     check_root
@@ -910,6 +944,7 @@ install_probe() {
     printf  '    ● 上报间隔    : %s秒\n' "${REPORT_INTERVAL}"
     printf  '    ● 探测类型    : %s\n' "${PING_TYPE}"
     printf  '    ● 流量重置日  : %s号\n' "${RESET_DAY}"
+    printf  '    ● 重置时区    : UTC%s\n' "${RESET_TZ}"
     [ -n "${CT_NODE}" ] && printf  '    ● CT节点      : %s\n' "${CT_NODE}"
     [ -n "${CU_NODE}" ] && printf  '    ● CU节点      : %s\n' "${CU_NODE}"
     [ -n "${CM_NODE}" ] && printf  '    ● CM节点      : %s\n' "${CM_NODE}"
