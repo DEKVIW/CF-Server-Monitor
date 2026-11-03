@@ -19,6 +19,10 @@ export function mergeMetricsIntoServer(server, metrics) {
   server.ping_cu = metrics.ping_cu;
   server.ping_cm = metrics.ping_cm;
   server.ping_bd = metrics.ping_bd;
+  server.loss_ct = metrics.loss_ct ?? null;
+  server.loss_cu = metrics.loss_cu ?? null;
+  server.loss_cm = metrics.loss_cm ?? null;
+  server.loss_bd = metrics.loss_bd ?? null;
   server.ram_total = metrics.ram_total || 0;
   server.ram_used = metrics.ram_used || 0;
   server.swap_total = metrics.swap_total || 0;

@@ -16,7 +16,10 @@ import {
 let dbInitialized = false;
 
 const DASHBOARD_LATENCY_FIELDS = ['ct', 'cu', 'cm', 'bd'];
-const DASHBOARD_LATENCY_COLUMNS = DASHBOARD_LATENCY_FIELDS.map(field => `ping_${field}`);
+const DASHBOARD_LATENCY_COLUMNS = DASHBOARD_LATENCY_FIELDS.flatMap(field => [
+  `ping_${field}`,
+  `loss_${field}`
+]);
 const dashboardLatencyHistoryCache = new Map();
 
 function pruneDashboardLatencyHistoryCache(now = Date.now()) {
@@ -106,6 +109,10 @@ export async function initDatabase(db) {
         ping_cu INTEGER DEFAULT 0,
         ping_cm INTEGER DEFAULT 0,
         ping_bd INTEGER DEFAULT 0,
+        loss_ct INTEGER DEFAULT NULL,
+        loss_cu INTEGER DEFAULT NULL,
+        loss_cm INTEGER DEFAULT NULL,
+        loss_bd INTEGER DEFAULT NULL,
         ram_total REAL DEFAULT 0,
         ram_used REAL DEFAULT 0,
         swap_total REAL DEFAULT 0,
@@ -217,11 +224,11 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
     'cutoff:', new Date(cutoff).toISOString()
   );
 
-  const rawResult = await db.prepare(`
+  const queryHistory = selectedColumns => db.prepare(`
     WITH sampled AS (
-      SELECT 
-        timestamp, 
-        ${columns},
+      SELECT
+        timestamp,
+        ${selectedColumns},
         ROW_NUMBER() OVER (
           PARTITION BY CAST(timestamp / ? AS INTEGER)
           ORDER BY timestamp
@@ -231,10 +238,24 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
         AND typeof(timestamp) = 'integer'
         AND timestamp >= ?
     )
-    SELECT timestamp, ${columns}
+    SELECT timestamp, ${selectedColumns}
     FROM sampled
     WHERE rn = 1
   `).bind(intervalMs, serverId, cutoff).all();
+
+  let rawResult;
+  try {
+    rawResult = await queryHistory(columns);
+  } catch (error) {
+    if (!/no column named loss_/i.test(error?.message || '')) throw error;
+    const legacyColumns = columns
+      .split(',')
+      .map(column => column.trim())
+      .filter(column => !column.startsWith('loss_'))
+      .join(', ');
+    console.warn('metrics_history 尚未升级 loss_* 字段，历史查询暂按旧结构返回');
+    rawResult = await queryHistory(legacyColumns);
+  }
 
   const result = rawResult.results.map(row => ({
     ...row,
@@ -259,11 +280,21 @@ function normalizeDashboardLatencyValue(value) {
   return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
 }
 
+function normalizeDashboardLossValue(value) {
+  if (value === null || value === undefined || value === '' || String(value).toLowerCase() === 'false') {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 100 ? number : null;
+}
+
 function buildDashboardLatencyWindow(rows, queryStart, intervalMs, points) {
   const buckets = Array.from({ length: points }, () => null);
 
-  const hasPingValue = row => DASHBOARD_LATENCY_COLUMNS.some(column =>
-    normalizeDashboardLatencyValue(row?.[column]) !== null
+  const hasPingValue = row => DASHBOARD_LATENCY_FIELDS.some(field =>
+    normalizeDashboardLatencyValue(row?.[`ping_${field}`]) !== null ||
+    normalizeDashboardLossValue(row?.[`loss_${field}`]) !== null
   );
 
   for (const row of rows || []) {
@@ -288,8 +319,15 @@ function buildDashboardLatencyWindow(rows, queryStart, intervalMs, points) {
     return point;
   });
 
-  // 当前历史表没有单独保存丢包字段，保持空数组，不把未知值伪造成 0%。
-  return { ping, loss: [] };
+  const loss = buckets.map((row, index) => {
+    const point = { ts: queryStart + index * intervalMs };
+    for (const field of DASHBOARD_LATENCY_FIELDS) {
+      point[field] = normalizeDashboardLossValue(row?.[`loss_${field}`]);
+    }
+    return point;
+  });
+
+  return { ping, loss };
 }
 
 /**
@@ -337,6 +375,25 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
       AND timestamp < ?
     ORDER BY timestamp ASC
   `;
+  const legacyColumns = ['timestamp', ...DASHBOARD_LATENCY_FIELDS.map(field => `ping_${field}`)].join(', ');
+  const legacyQuery = `
+    SELECT ${legacyColumns}
+    FROM metrics_history
+    WHERE server_id = ?
+      AND typeof(timestamp) = 'integer'
+      AND timestamp >= ?
+      AND timestamp < ?
+    ORDER BY timestamp ASC
+  `;
+
+  const queryRows = async serverId => {
+    try {
+      return await db.prepare(query).bind(serverId, queryStart, queryEnd).all();
+    } catch (error) {
+      if (!/no column named loss_/i.test(error?.message || '')) throw error;
+      return db.prepare(legacyQuery).bind(serverId, queryStart, queryEnd).all();
+    }
+  };
 
   const applyRows = (serverId, rows) => {
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -359,9 +416,7 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
     if (typeof db.batch !== 'function') {
       await Promise.all(chunk.map(async ({ serverId }) => {
         try {
-          const response = await db.prepare(query)
-            .bind(serverId, queryStart, queryEnd)
-            .all();
+          const response = await queryRows(serverId);
           applyRows(serverId, response?.results);
         } catch (error) {
           console.warn('[DashboardLatency] query failed:', serverId, error?.message || error);
@@ -387,9 +442,7 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
       console.warn('[DashboardLatency] batch query failed, falling back:', error?.message || error);
       await Promise.all(chunk.map(async ({ serverId }) => {
         try {
-          const response = await db.prepare(query)
-            .bind(serverId, queryStart, queryEnd)
-            .all();
+          const response = await queryRows(serverId);
           applyRows(serverId, response?.results);
         } catch (fallbackError) {
           console.warn('[DashboardLatency] fallback query failed:', serverId, fallbackError?.message || fallbackError);
@@ -445,28 +498,29 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
       const num = parseInt(val);
       return (num > 0) ? num : null;
     };
+
+    const parseLoss = (val) => {
+      if (val === '' || val === null || val === undefined || String(val).toLowerCase() === 'false') {
+        return null;
+      }
+      const num = Number(val);
+      return Number.isFinite(num) && num >= 0 && num <= 100 ? num : null;
+    };
     
-    await db.prepare(`
-      INSERT INTO metrics_history (
-        server_id, timestamp, cpu, ram, disk, load_avg,
-        net_in_speed, net_out_speed, net_rx, net_tx,
-        processes, tcp_conn, udp_conn,
-        ping_ct, ping_cu, ping_cm, ping_bd,
-        ram_total, ram_used, swap_total, swap_used,
-        disk_total, disk_used,
-        cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,
-        net_rx_monthly, net_tx_monthly, traffic_period_start
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?,
-        ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?
-      )
-    `).bind(
+    const baseColumns = [
+      'server_id', 'timestamp', 'cpu', 'ram', 'disk', 'load_avg',
+      'net_in_speed', 'net_out_speed', 'net_rx', 'net_tx',
+      'processes', 'tcp_conn', 'udp_conn',
+      'ping_ct', 'ping_cu', 'ping_cm', 'ping_bd'
+    ];
+    const lossColumns = ['loss_ct', 'loss_cu', 'loss_cm', 'loss_bd'];
+    const tailColumns = [
+      'ram_total', 'ram_used', 'swap_total', 'swap_used',
+      'disk_total', 'disk_used',
+      'cpu_cores', 'cpu_info', 'arch', 'os', 'country', 'ip_v4', 'ip_v6', 'boot_time',
+      'net_rx_monthly', 'net_tx_monthly', 'traffic_period_start'
+    ];
+    const baseValues = [
       serverId,
       now,
       parseFloat(metrics.cpu) || 0,
@@ -484,6 +538,14 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
       parsePing(metrics.ping_cu),
       parsePing(metrics.ping_cm),
       parsePing(metrics.ping_bd),
+    ];
+    const lossValues = [
+      parseLoss(metrics.loss_ct),
+      parseLoss(metrics.loss_cu),
+      parseLoss(metrics.loss_cm),
+      parseLoss(metrics.loss_bd),
+    ];
+    const tailValues = [
       parseFloat(metrics.ram_total) || 0,
       parseFloat(metrics.ram_used) || 0,
       parseFloat(metrics.swap_total) || 0,
@@ -501,7 +563,28 @@ export async function saveMetricsHistory(db, serverId, metrics, countryCode = ''
       parseFloat(metrics.net_rx_monthly) || 0,
       parseFloat(metrics.net_tx_monthly) || 0,
       parseFloat(metrics.traffic_period_start) || 0
-    ).run();
+    ];
+
+    const insertHistoryRow = async includeLoss => {
+      const columns = includeLoss
+        ? [...baseColumns, ...lossColumns, ...tailColumns]
+        : [...baseColumns, ...tailColumns];
+      const values = includeLoss
+        ? [...baseValues, ...lossValues, ...tailValues]
+        : [...baseValues, ...tailValues];
+      await db.prepare(`
+        INSERT INTO metrics_history (${columns.join(', ')})
+        VALUES (${columns.map(() => '?').join(', ')})
+      `).bind(...values).run();
+    };
+
+    try {
+      await insertHistoryRow(true);
+    } catch (error) {
+      if (!/no column named loss_/i.test(error?.message || '')) throw error;
+      console.warn('metrics_history 尚未升级 loss_* 字段，暂按旧结构保存本次指标');
+      await insertHistoryRow(false);
+    }
   } catch (e) {
     console.error('保存历史数据失败:', e);
   }

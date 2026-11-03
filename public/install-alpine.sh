@@ -553,6 +553,53 @@ get_ping() {
     fi
 }
 
+# 一轮线路探测执行 4 次请求，同时返回“延迟 丢包率”。
+get_probe() {
+    local host="${1:-}"
+    local count="${2:-4}"
+
+    if [ -z "${host}" ]; then
+        echo "null 100"
+        return
+    fi
+
+    local ok=0 values="" i=1 rtt
+    while [ "${i}" -le "${count}" ]; do
+        rtt=$(get_ping "${host}" || true)
+        if [ -n "${rtt}" ] && [ "${rtt}" -gt 0 ] 2>/dev/null; then
+            ok=$((ok + 1))
+            values="${values} ${rtt}"
+        fi
+        i=$((i + 1))
+    done
+
+    if [ "${ok}" -eq 0 ]; then
+        echo "null 100"
+        return
+    fi
+
+    local sorted median_val n="${ok}"
+    sorted=$(printf '%s\n' "${values}" | tr ' ' '\n' | awk 'NF' | sort -n)
+    if [ $((n % 2)) -eq 1 ]; then
+        median_val=$(printf '%s\n' "${sorted}" | sed -n "$(( (n + 1) / 2 ))p")
+    else
+        local a b
+        a=$(printf '%s\n' "${sorted}" | sed -n "$((n / 2))p")
+        b=$(printf '%s\n' "${sorted}" | sed -n "$((n / 2 + 1))p")
+        median_val=$(( (a + b) / 2 ))
+    fi
+
+    echo "${median_val} $(( (count - ok) * 100 / count ))"
+}
+
+write_probe_result() {
+    local host="$1"
+    local dest="$2"
+    local tmp="${dest}.tmp"
+    get_probe "${host}" 4 > "${tmp}" 2>/dev/null || printf '%s\n' 'null 100' > "${tmp}"
+    mv "${tmp}" "${dest}"
+}
+
 # 静态测试节点定义（空值则跳过）
 CT_NODE="${CT_NODE:-}"
 CU_NODE="${CU_NODE:-}"
@@ -577,10 +624,10 @@ run_network_worker() {
         fi
 
         if [ $((now - last_ping)) -ge 30 ] || [ "$last_ping" -eq 0 ]; then
-            [ -n "$CT_NODE" ] && get_ping "$CT_NODE" > /dev/shm/.cf_ping_ct.tmp && mv /dev/shm/.cf_ping_ct.tmp /dev/shm/.cf_ping_ct || rm -f /dev/shm/.cf_ping_ct
-            [ -n "$CU_NODE" ] && get_ping "$CU_NODE" > /dev/shm/.cf_ping_cu.tmp && mv /dev/shm/.cf_ping_cu.tmp /dev/shm/.cf_ping_cu || rm -f /dev/shm/.cf_ping_cu
-            [ -n "$CM_NODE" ] && get_ping "$CM_NODE" > /dev/shm/.cf_ping_cm.tmp && mv /dev/shm/.cf_ping_cm.tmp /dev/shm/.cf_ping_cm || rm -f /dev/shm/.cf_ping_cm
-            [ -n "$BD_NODE" ] && get_ping "$BD_NODE" > /dev/shm/.cf_ping_bd.tmp && mv /dev/shm/.cf_ping_bd.tmp /dev/shm/.cf_ping_bd || rm -f /dev/shm/.cf_ping_bd
+            if [ -n "$CT_NODE" ]; then write_probe_result "$CT_NODE" /dev/shm/.cf_probe_ct; else rm -f /dev/shm/.cf_probe_ct; fi
+            if [ -n "$CU_NODE" ]; then write_probe_result "$CU_NODE" /dev/shm/.cf_probe_cu; else rm -f /dev/shm/.cf_probe_cu; fi
+            if [ -n "$CM_NODE" ]; then write_probe_result "$CM_NODE" /dev/shm/.cf_probe_cm; else rm -f /dev/shm/.cf_probe_cm; fi
+            if [ -n "$BD_NODE" ]; then write_probe_result "$BD_NODE" /dev/shm/.cf_probe_bd; else rm -f /dev/shm/.cf_probe_bd; fi
             last_ping="$now"
         fi
         sleep 5
@@ -694,17 +741,17 @@ while true; do
 
     [ -f /dev/shm/.cf_ipv4 ] && IPV4=$(cat /dev/shm/.cf_ipv4) || IPV4="0"
     [ -f /dev/shm/.cf_ipv6 ] && IPV6=$(cat /dev/shm/.cf_ipv6) || IPV6="0"
-    [ -f /dev/shm/.cf_ping_ct ] && PING_CT=$(cat /dev/shm/.cf_ping_ct) || PING_CT=""
-    [ -f /dev/shm/.cf_ping_cu ] && PING_CU=$(cat /dev/shm/.cf_ping_cu) || PING_CU=""
-    [ -f /dev/shm/.cf_ping_cm ] && PING_CM=$(cat /dev/shm/.cf_ping_cm) || PING_CM=""
-    [ -f /dev/shm/.cf_ping_bd ] && PING_BD=$(cat /dev/shm/.cf_ping_bd) || PING_BD=""
+    if [ -f /dev/shm/.cf_probe_ct ]; then _p=$(cat /dev/shm/.cf_probe_ct); PING_CT=${_p%% *}; LOSS_CT=${_p##* }; else PING_CT=""; LOSS_CT=""; fi
+    if [ -f /dev/shm/.cf_probe_cu ]; then _p=$(cat /dev/shm/.cf_probe_cu); PING_CU=${_p%% *}; LOSS_CU=${_p##* }; else PING_CU=""; LOSS_CU=""; fi
+    if [ -f /dev/shm/.cf_probe_cm ]; then _p=$(cat /dev/shm/.cf_probe_cm); PING_CM=${_p%% *}; LOSS_CM=${_p##* }; else PING_CM=""; LOSS_CM=""; fi
+    if [ -f /dev/shm/.cf_probe_bd ]; then _p=$(cat /dev/shm/.cf_probe_bd); PING_BD=${_p%% *}; LOSS_BD=${_p##* }; else PING_BD=""; LOSS_BD=""; fi
 
     EOS=$(escape_json "${OS}")
     EARCH=$(escape_json "${ARCH}")
     ECPU=$(escape_json "${CPU_INFO}")
 
     PAYLOAD=$(cat <<EOF
-{"id":"$SERVER_ID","secret":"$SECRET","metrics":{"cpu":"$CPU","ram":"$RAM","ram_total":"$RAM_TOTAL","ram_used":"$RAM_USED","swap_total":"$SWAP_TOTAL","swap_used":"$SWAP_USED","disk":"$DISK","disk_total":"$DISK_TOTAL","disk_used":"$DISK_USED","load_avg":"$LOAD_AVG","boot_time":"$BOOT_TIME","net_rx":"$RX_NOW","net_tx":"$TX_NOW","net_rx_monthly":"$RX_MONTHLY","net_tx_monthly":"$TX_MONTHLY","traffic_period_start":"$TRAFFIC_PERIOD_START","net_in_speed":"$RX_SPEED","net_out_speed":"$TX_SPEED","os":"$EOS","arch":"$EARCH","cpu_info":"$ECPU","cpu_cores":"$CPU_CORES","processes":"$PROCESSES","tcp_conn":"$TCP_CONN","udp_conn":"$UDP_CONN","ip_v4":"$IPV4","ip_v6":"$IPV6","ping_ct":"$PING_CT","ping_cu":"$PING_CU","ping_cm":"$PING_CM","ping_bd":"$PING_BD"}}
+{"id":"$SERVER_ID","secret":"$SECRET","metrics":{"cpu":"$CPU","ram":"$RAM","ram_total":"$RAM_TOTAL","ram_used":"$RAM_USED","swap_total":"$SWAP_TOTAL","swap_used":"$SWAP_USED","disk":"$DISK","disk_total":"$DISK_TOTAL","disk_used":"$DISK_USED","load_avg":"$LOAD_AVG","boot_time":"$BOOT_TIME","net_rx":"$RX_NOW","net_tx":"$TX_NOW","net_rx_monthly":"$RX_MONTHLY","net_tx_monthly":"$TX_MONTHLY","traffic_period_start":"$TRAFFIC_PERIOD_START","net_in_speed":"$RX_SPEED","net_out_speed":"$TX_SPEED","os":"$EOS","arch":"$EARCH","cpu_info":"$ECPU","cpu_cores":"$CPU_CORES","processes":"$PROCESSES","tcp_conn":"$TCP_CONN","udp_conn":"$UDP_CONN","ip_v4":"$IPV4","ip_v6":"$IPV6","ping_ct":"$PING_CT","ping_cu":"$PING_CU","ping_cm":"$PING_CM","ping_bd":"$PING_BD","loss_ct":"$LOSS_CT","loss_cu":"$LOSS_CU","loss_cm":"$LOSS_CM","loss_bd":"$LOSS_BD"}}
 EOF
 )
     curl -s -o /dev/null -X POST -H "Content-Type: application/json" -d "$PAYLOAD" -m 4 --connect-timeout 2 "$WORKER_URL" 2>/dev/null || true
@@ -987,7 +1034,7 @@ uninstall_probe() {
     rm -f "${SCRIPT_FILE}.ctl"
 
     step "抹除共享内存高速缓存区..."
-    rm -f /dev/shm/.cf_ipv4 /dev/shm/.cf_ipv6 /dev/shm/.cf_ping_* 2>/dev/null || true
+    rm -f /dev/shm/.cf_ipv4 /dev/shm/.cf_ipv6 /dev/shm/.cf_ping_* /dev/shm/.cf_probe_* 2>/dev/null || true
 
     step "抹除流量追踪数据..."
     rm -rf /var/lib/${SERVICE_NAME}

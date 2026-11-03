@@ -148,7 +148,11 @@ async function addHistoryColumns(db) {
       boot_time: "TEXT DEFAULT ''",
       net_rx_monthly: "REAL DEFAULT 0",
       net_tx_monthly: "REAL DEFAULT 0",
-      traffic_period_start: "REAL DEFAULT 0"
+      traffic_period_start: "REAL DEFAULT 0",
+      loss_ct: "INTEGER DEFAULT NULL",
+      loss_cu: "INTEGER DEFAULT NULL",
+      loss_cm: "INTEGER DEFAULT NULL",
+      loss_bd: "INTEGER DEFAULT NULL"
     };
     
     let added = 0;
@@ -213,6 +217,10 @@ async function optimizeMetricsHistoryRowid(db) {
         ping_cu INTEGER DEFAULT 0,
         ping_cm INTEGER DEFAULT 0,
         ping_bd INTEGER DEFAULT 0,
+        loss_ct INTEGER DEFAULT NULL,
+        loss_cu INTEGER DEFAULT NULL,
+        loss_cm INTEGER DEFAULT NULL,
+        loss_bd INTEGER DEFAULT NULL,
         ram_total REAL DEFAULT 0,
         ram_used REAL DEFAULT 0,
         swap_total REAL DEFAULT 0,
@@ -240,6 +248,7 @@ async function optimizeMetricsHistoryRowid(db) {
         net_in_speed, net_out_speed, net_rx, net_tx,
         processes, tcp_conn, udp_conn,
         ping_ct, ping_cu, ping_cm, ping_bd,
+        loss_ct, loss_cu, loss_cm, loss_bd,
         ram_total, ram_used, swap_total, swap_used,
         disk_total, disk_used,
         cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,
@@ -250,6 +259,7 @@ async function optimizeMetricsHistoryRowid(db) {
         net_in_speed, net_out_speed, net_rx, net_tx,
         processes, tcp_conn, udp_conn,
         ping_ct, ping_cu, ping_cm, ping_bd,
+        loss_ct, loss_cu, loss_cm, loss_bd,
         ram_total, ram_used, swap_total, swap_used,
         disk_total, disk_used,
         cpu_cores, cpu_info, arch, os, country, ip_v4, ip_v6, boot_time,

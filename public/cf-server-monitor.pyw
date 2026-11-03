@@ -7,6 +7,7 @@ import json
 import time
 import socket
 import shutil
+import statistics
 import ctypes
 import queue
 import threading
@@ -330,6 +331,27 @@ def get_ping(host, ping_type="tcp"):
     return get_tcp_ping(host, 443)
 
 
+def get_probe(host, ping_type="tcp", count=4):
+    """Run a small probe batch and return (median latency, packet loss percent)."""
+    if not host:
+        return "", ""
+
+    values = []
+    for _ in range(count):
+        value = get_ping(host, ping_type)
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = 0
+        if parsed > 0:
+            values.append(parsed)
+
+    if not values:
+        return "", "100"
+
+    return str(max(1, int(statistics.median(values)))), str((count - len(values)) * 100 // count)
+
+
 def get_cpu_name():
     cmds = [
         'wmic cpu get name',
@@ -507,6 +529,10 @@ def probe_loop(status_callback=None):
         "ping_cu": "",
         "ping_cm": "",
         "ping_bd": "",
+        "loss_ct": "",
+        "loss_cu": "",
+        "loss_cm": "",
+        "loss_bd": "",
         "public_ipv4": "",
         "public_ipv6": "",
     }
@@ -535,10 +561,10 @@ def probe_loop(status_callback=None):
                 last_ip_check = now
 
             if now - last_ping_check >= 30 or last_ping_check == 0:
-                cache["ping_ct"] = get_ping(CT_NODE, ping_type)
-                cache["ping_cu"] = get_ping(CU_NODE, ping_type)
-                cache["ping_cm"] = get_ping(CM_NODE, ping_type)
-                cache["ping_bd"] = get_ping(BD_NODE, ping_type)
+                cache["ping_ct"], cache["loss_ct"] = get_probe(CT_NODE, ping_type)
+                cache["ping_cu"], cache["loss_cu"] = get_probe(CU_NODE, ping_type)
+                cache["ping_cm"], cache["loss_cm"] = get_probe(CM_NODE, ping_type)
+                cache["ping_bd"], cache["loss_bd"] = get_probe(BD_NODE, ping_type)
                 last_ping_check = now
 
             metrics = collect_metrics(psutil, previous_net)
@@ -548,6 +574,10 @@ def probe_loop(status_callback=None):
             metrics["ping_cu"] = cache["ping_cu"]
             metrics["ping_cm"] = cache["ping_cm"]
             metrics["ping_bd"] = cache["ping_bd"]
+            metrics["loss_ct"] = cache["loss_ct"]
+            metrics["loss_cu"] = cache["loss_cu"]
+            metrics["loss_cm"] = cache["loss_cm"]
+            metrics["loss_bd"] = cache["loss_bd"]
 
             payload = {
                 "id": server_id,
