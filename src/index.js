@@ -7,6 +7,7 @@ import { handleUpdate, handleWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { isValidThemeOptions, loadSettings, loadSiteSettings, saveThemeOptions } from './utils/settings.js';
 import { normalizeThemeUrl } from './utils/theme.js';
+import { applyThemeHistoryCompatibility } from './utils/traffic.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache } from './utils/cache.js';
 import { createSuccessResponse, createUnauthorizedResponse, createBadRequestResponse } from './utils/errors.js';
@@ -117,14 +118,22 @@ async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
   
   const cached = getMetricsHistoryCache(id, clampedHours, columns);
   if (cached && Date.now() - cached.timestamp < 60000) {
-    return createSuccessResponse(cached.data, { 'X-Cache': 'HIT' });
+    const themeEnabled = !!normalizeThemeUrl(sys.theme_url);
+    return createSuccessResponse(
+      applyThemeHistoryCompatibility(cached.data, themeEnabled),
+      { 'X-Cache': 'HIT' }
+    );
   }
   
   const data = await getMetricsHistory(env.DB, id, clampedHours, columns);
   
   setMetricsHistoryCache(id, clampedHours, columns, data);
-  
-  return createSuccessResponse(data, { 'X-Cache': 'MISS' });
+
+  const themeEnabled = !!normalizeThemeUrl(sys.theme_url);
+  return createSuccessResponse(
+    applyThemeHistoryCompatibility(data, themeEnabled),
+    { 'X-Cache': 'MISS' }
+  );
 }
 
 export default {

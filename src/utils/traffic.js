@@ -42,6 +42,17 @@ export function applyThemeTrafficCompatibility(server, themeEnabled) {
       ? 'tx'
       : 'sum';
 
+  // CF-Server-Monitor's legacy `disk` field is a numeric usage percentage.
+  // LuminaPlus reserves `disk` for the optional disk-I/O object, while disk
+  // usage already comes from `disk_used` / `disk_total`. Do not let the old
+  // numeric field make the theme reject an otherwise valid server snapshot.
+  if (
+    target.disk === null ||
+    (target.disk !== undefined && (typeof target.disk !== 'object' || Array.isArray(target.disk)))
+  ) {
+    delete target.disk;
+  }
+
   target.traffic_raw_rx_monthly = monthlyRx;
   target.traffic_raw_tx_monthly = monthlyTx;
 
@@ -51,4 +62,22 @@ export function applyThemeTrafficCompatibility(server, themeEnabled) {
   target.net_tx_monthly = mode === 'tx' ? activeBaseline + txDelta : txDelta;
   target.traffic_display_adjusted = true;
   return target;
+}
+
+/** Remove the legacy numeric disk field from history rows consumed by themes. */
+export function applyThemeHistoryCompatibility(rows, themeEnabled) {
+  if (!themeEnabled || !Array.isArray(rows)) return rows;
+
+  return rows.map(row => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+
+    const target = { ...row };
+    if (
+      target.disk === null ||
+      (target.disk !== undefined && (typeof target.disk !== 'object' || Array.isArray(target.disk)))
+    ) {
+      delete target.disk;
+    }
+    return target;
+  });
 }
