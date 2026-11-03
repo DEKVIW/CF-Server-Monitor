@@ -65,9 +65,9 @@
           <span class="sysinfo-label">🌐 {{ trans.totalTraffic }}</span>
           <span class="sysinfo-value sysinfo-small">↓ {{ formatBytes(server.net_rx) }} / ↑ {{ formatBytes(server.net_tx) }}</span>
         </div>
-        <div class="sysinfo-item" v-if="server.net_rx_monthly">
+        <div class="sysinfo-item" v-if="getMonthlyTraffic(server, 'rx') || getMonthlyTraffic(server, 'tx')">
           <span class="sysinfo-label">📊 {{ trans.monthlyTraffic }}</span>
-          <span class="sysinfo-value sysinfo-small">↓ {{ formatBytes(server.net_rx_monthly) }} / ↑ {{ formatBytes(server.net_tx_monthly) }}</span>
+          <span class="sysinfo-value sysinfo-small">↓ {{ formatBytes(getMonthlyTraffic(server, 'rx')) }} / ↑ {{ formatBytes(getMonthlyTraffic(server, 'tx')) }}</span>
         </div>
         <div class="sysinfo-item" v-if="trafficUsage">
           <span class="sysinfo-label">USE {{ trans.trafficUsage || 'Traffic Usage' }}</span>
@@ -240,7 +240,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
-import { fetchServerDetail, fetchAllHistory, formatBytes, getTrafficUsage, fetchConfig, isAdminLoggedIn, createLiveSocket } from '../utils/api.js'
+import { fetchServerDetail, fetchAllHistory, formatBytes, getMonthlyTraffic, getTrafficUsage, fetchConfig, isAdminLoggedIn, createLiveSocket } from '../utils/api.js'
 import Chart from 'chart.js/auto'
 import 'chartjs-adapter-date-fns'
 import { currentLang, translations } from '../utils/i18n'

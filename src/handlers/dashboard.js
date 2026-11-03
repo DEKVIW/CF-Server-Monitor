@@ -3,6 +3,31 @@ import { getLatestMetrics, getLatestMetricsForAllServers, getAllServers } from '
 import { getServerDetail } from '../utils/cache.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { createSuccessResponse, createBadRequestResponse, createNotFoundResponse } from '../utils/errors.js';
+import { normalizeThemeUrl } from '../utils/theme.js';
+import { applyThemeTrafficCompatibility } from '../utils/traffic.js';
+
+function addThemeCompatibilityFields(server) {
+  server.region = server.region || server.country || '';
+  server.traffic_calc_type = server.traffic_count_mode === 'rx'
+    ? 'down'
+    : server.traffic_count_mode === 'tx'
+      ? 'up'
+      : 'sum';
+  server.reset_day = Number(server.traffic_reset_day) || 0;
+  return server;
+}
+
+function buildThemeSysConfig(sys) {
+  return {
+    show_price: sys.show_price === 'true',
+    show_expire: sys.show_expire === 'true',
+    show_tf: sys.show_tf === 'true',
+    show_time: true,
+    show_three_net_details: true,
+    long_history_points: 120,
+    site_title: sys.site_title || 'Server Monitor'
+  };
+}
 
 export async function handleServerAPI(request, env, sys) {
   const isLoggedIn = await checkAuth(request, env, sys);
@@ -16,13 +41,17 @@ export async function handleServerAPI(request, env, sys) {
   
   if (!id) return createBadRequestResponse('Missing ID');
   
-  const server = await getServerDetail(env.DB, id, isLoggedIn);
-  if (!server) return createNotFoundResponse('Server not found');
+  const serverRecord = await getServerDetail(env.DB, id, isLoggedIn);
+  if (!serverRecord) return createNotFoundResponse('Server not found');
+  const server = { ...serverRecord };
   
   const latestMetrics = await getLatestMetrics(env.DB, id);
   mergeMetricsIntoServer(server, latestMetrics);
+  addThemeCompatibilityFields(server);
+  const displayedServer = applyThemeTrafficCompatibility(server, !!normalizeThemeUrl(sys.theme_url));
+  displayedServer.sysConfig = buildThemeSysConfig(sys);
   
-  return createSuccessResponse(server);
+  return createSuccessResponse(displayedServer);
 }
 
 export async function handleServersAPI(request, env, sys) {
@@ -32,16 +61,18 @@ export async function handleServersAPI(request, env, sys) {
     return simpleAuthResponse();
   }
   
-  const results = await getAllServers(env.DB, isLoggedIn);
+  const results = (await getAllServers(env.DB, isLoggedIn)).map(server => ({ ...server }));
   
   const latestMetricsMap = await getLatestMetricsForAllServers(env.DB);
   
   const now = Date.now();
+  const themeEnabled = !!normalizeThemeUrl(sys.theme_url);
   let globalOnline = 0;
   let globalSpeedIn = 0, globalSpeedOut = 0, globalNetTx = 0, globalNetRx = 0;
   const countryStats = {};
   
-  for (const server of results) {
+  for (let index = 0; index < results.length; index++) {
+    const server = { ...results[index] };
     const latestMetrics = latestMetricsMap.get(server.id);
     
     let isOnline = false;
@@ -50,6 +81,10 @@ export async function handleServersAPI(request, env, sys) {
       isOnline = (now - latestMetrics.timestamp) < 300000;
       mergeMetricsIntoServer(server, latestMetrics);
     }
+
+    addThemeCompatibilityFields(server);
+    const displayedServer = applyThemeTrafficCompatibility(server, themeEnabled);
+    results[index] = displayedServer;
     
     if (isOnline) {
       globalOnline++;
@@ -81,12 +116,16 @@ export async function handleServersAPI(request, env, sys) {
       globalNetRx
     },
     countryStats,
+    regionStats: countryStats,
     latestMetricsMap: Object.fromEntries(latestMetricsMap),
     sysConfig: {
       show_price: sys.show_price === 'true',
       show_expire: sys.show_expire === 'true',
       show_bw: sys.show_bw === 'true',
       show_tf: sys.show_tf === 'true',
+      show_time: true,
+      show_three_net_details: true,
+      long_history_points: 120,
       site_title: sys.site_title || 'Server Monitor'
     }
   };

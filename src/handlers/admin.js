@@ -3,6 +3,7 @@ import { clearNotificationSettingsCache } from '../services/notification.js';
 import { getLatestMetricsForAllServers, getAllServers } from '../database/schema.js';
 import { clearServersListCache, clearServerDetailCache } from '../utils/cache.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
+import { normalizeThemeUrl } from '../utils/theme.js';
 
 async function md5Hash(input) {
   const encoder = new TextEncoder();
@@ -262,10 +263,31 @@ export async function handleAdminAPI(request, env, sys) {
     else if (data.action === 'save_settings') {
       const settings = data.settings || {};
 
-      const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_head', 'custom_script'];
-      const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_bw', 'show_tf', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd'];
+      const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_head', 'custom_script', 'theme_options'];
+      const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_bw', 'show_tf', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'theme_url'];
 
-      const appearanceOptions = {};
+      const requestedThemeUrl = settings.theme_url === undefined ? undefined : String(settings.theme_url || '').trim();
+      const normalizedThemeUrl = requestedThemeUrl === undefined ? undefined : normalizeThemeUrl(requestedThemeUrl);
+      if (requestedThemeUrl && !normalizedThemeUrl) {
+        return new Response(JSON.stringify({ error: 'Invalid GitHub theme URL' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      const existingAppearanceOptionsResult = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind('appearance_options').first();
+      let existingAppearanceOptions = {};
+      if (existingAppearanceOptionsResult?.value) {
+        try {
+          const parsed = JSON.parse(existingAppearanceOptionsResult.value);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            existingAppearanceOptions = parsed;
+          }
+        } catch (_) {
+        }
+      }
+
+      const appearanceOptions = { ...existingAppearanceOptions };
       for (const field of APPEARANCE_FIELDS) {
         if (settings[field] !== undefined) {
           appearanceOptions[field] = settings[field];
@@ -287,6 +309,8 @@ export async function handleAdminAPI(request, env, sys) {
             if (settings[field] && settings[field].length > 0) {
               siteOptions[field] = await md5Hash(settings[field]);
             }
+          } else if (field === 'theme_url') {
+            siteOptions[field] = normalizedThemeUrl;
           } else {
             siteOptions[field] = settings[field];
           }

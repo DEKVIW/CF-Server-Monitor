@@ -63,7 +63,7 @@
         <span class="net-down">▼ {{ totalRx }}</span>
         <span class="net-up">▲ {{ totalTx }}</span>
       </div>
-      <div class="stat-row" v-if="sysConfig.show_tf && server.net_rx_monthly">
+      <div class="stat-row" v-if="sysConfig.show_tf && (getMonthlyTraffic(server, 'rx') || getMonthlyTraffic(server, 'tx'))">
         <span class="stat-key">MTRF</span>
         <span class="net-down">▼ {{ monthlyRx }}</span>
         <span class="net-up">▲ {{ monthlyTx }}</span>
@@ -92,7 +92,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { formatBytes, getTrafficUsage } from '../utils/api'
+import { formatBytes, getMonthlyTraffic, getTrafficUsage } from '../utils/api'
 import { t, currentLang } from '../utils/i18n'
 import { translations } from '../utils/i18n'
 import { TIME, PING } from '../utils/constants'
@@ -135,8 +135,8 @@ const netInSpeed = computed(() => formatBytes(props.server.net_in_speed))
 const netOutSpeed = computed(() => formatBytes(props.server.net_out_speed))
 const totalRx = computed(() => formatBytes(props.server.net_rx))
 const totalTx = computed(() => formatBytes(props.server.net_tx))
-const monthlyRx = computed(() => formatBytes(props.server.net_rx_monthly))
-const monthlyTx = computed(() => formatBytes(props.server.net_tx_monthly))
+const monthlyRx = computed(() => formatBytes(getMonthlyTraffic(props.server, 'rx')))
+const monthlyTx = computed(() => formatBytes(getMonthlyTraffic(props.server, 'tx')))
 const trafficUsage = computed(() => props.sysConfig.show_tf ? getTrafficUsage(props.server) : null)
 const trafficPercent = computed(() => trafficUsage.value ? trafficUsage.value.percent.toFixed(1) : '0.0')
 const trafficPercentWidth = computed(() => Math.min(trafficUsage.value?.percent || 0, 100))

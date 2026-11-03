@@ -5,10 +5,13 @@ import { handleAdminAPI } from './handlers/admin.js';
 import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
-import { loadSettings, loadSiteSettings } from './utils/settings.js';
+import { isValidThemeOptions, loadSettings, loadSiteSettings, saveThemeOptions } from './utils/settings.js';
+import { normalizeThemeUrl } from './utils/theme.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache } from './utils/cache.js';
 import { createSuccessResponse, createUnauthorizedResponse, createBadRequestResponse } from './utils/errors.js';
+
+const CURRENT_VERSION = '2.6.5';
 
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
@@ -134,16 +137,6 @@ export default {
       return createBadRequestResponse('API_SECRET is required');
     }
 
-    if (env.ASSETS && method === 'GET') {
-      try {
-        const res = await env.ASSETS.fetch(new Request(`http://static${path}`, request));
-        if (res.ok) {
-          return res;
-        }
-      } catch (e) {
-      }
-    }
-
     const bypassTurnstilePaths = [
       '/update',
       '/admin/api',
@@ -154,7 +147,7 @@ export default {
     ];
 
     const isApiRequest = path.startsWith('/api/') || path.startsWith('/admin/api');
-    if (path === '/api/config' || path === '/rebuild') {
+    if (path === '/api/config' || path === '/api/theme_options' || path === '/rebuild') {
       await initDatabase(env.DB);
     }
 
@@ -203,7 +196,7 @@ export default {
     }
 
     async function ensureFullSettings() {
-      if (!sys || !sys.site_title) {
+      if (!sys || sys.theme_options === undefined) {
         sys = await loadSettings(env.DB);
       }
       return sys;
@@ -224,8 +217,9 @@ export default {
         }
       }},
       { method: 'GET', path: '/api/config', handler: async () => {
-        await ensureSiteSettings();
+        await ensureFullSettings();
         const turnstileEnabled = sys.turnstile_enabled === 'true';
+        const isLoggedIn = await checkAuth(request, env, sys);
         let cookieAuth = false;
         
         if (turnstileEnabled) {
@@ -242,9 +236,49 @@ export default {
         }
         
         return createSuccessResponse({
+          version: CURRENT_VERSION,
+          site_title: sys.site_title || 'Cloudflare Server Monitor',
+          is_public: sys.is_public === 'true',
+          authorization: isLoggedIn,
           turnstile_enabled: turnstileEnabled,
+          turnstile_login_enabled: turnstileEnabled,
           turnstile_site_key: sys.turnstile_site_key || '',
-          cookie_auth: cookieAuth
+          cookie_auth: cookieAuth,
+          preferred_theme: 'auto',
+          default_language: 'auto',
+          display_mode: 'bar',
+          theme_options: sys.theme_options || {},
+          long_history_points: 120,
+          frontend_ws_timeout_minutes: 0,
+          custom_ct_name: '电信',
+          custom_cu_name: '联通',
+          custom_cm_name: '移动',
+          custom_bd_name: 'BGP'
+        });
+      }},
+      { method: 'POST', path: '/api/theme_options', handler: async () => {
+        await ensureFullSettings();
+        if (!await checkAuth(request, env, sys)) {
+          return simpleAuthResponse();
+        }
+
+        let data;
+        try {
+          data = await request.json();
+        } catch (_) {
+          return createBadRequestResponse('Invalid JSON');
+        }
+
+        if (!isValidThemeOptions(data?.theme_options)) {
+          return createBadRequestResponse('Invalid theme options format');
+        }
+
+        await saveThemeOptions(env.DB, data.theme_options);
+        sys.theme_options = data.theme_options;
+        return createSuccessResponse({
+          success: true,
+          theme_options: data.theme_options,
+          message: 'Update Success'
         });
       }},
       { method: 'GET', path: '/api/server', handler: async () => {
@@ -310,6 +344,20 @@ export default {
     }
 
     await ensureFullSettings();
+
+    // Let the configured third-party theme claim /assets/* before Workers
+    // Static Assets, otherwise a same-named built-in bundle can be returned.
+    const themeOwnsAssets = method === 'GET' && path.startsWith('/assets/') && normalizeThemeUrl(sys?.theme_url);
+    if (env.ASSETS && method === 'GET' && !themeOwnsAssets) {
+      try {
+        const res = await env.ASSETS.fetch(new Request(`http://static${path}`, request));
+        if (res.ok) {
+          return res;
+        }
+      } catch (e) {
+      }
+    }
+
     return serveFrontend(request, env, sys);
   },
 

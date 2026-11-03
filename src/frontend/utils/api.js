@@ -125,6 +125,13 @@ export const parseTrafficToBytes = (value) => {
   return amount * (multipliers[unit] || 1)
 }
 
+export const getMonthlyTraffic = (server, direction) => {
+  const field = direction === 'tx' ? 'net_tx_monthly' : 'net_rx_monthly'
+  const rawField = direction === 'tx' ? 'traffic_raw_tx_monthly' : 'traffic_raw_rx_monthly'
+  const value = server?.[rawField] ?? server?.[field]
+  return parseFloat(value) || 0
+}
+
 export const getTrafficUsage = (server) => {
   const limitBytes = parseTrafficToBytes(server?.traffic_limit)
   if (!limitBytes) return null
@@ -137,6 +144,20 @@ export const getTrafficUsage = (server) => {
   const baselinePeriodStart = parseFloat(server?.traffic_baseline_period_start) || 0
   const periodStart = parseFloat(server?.traffic_period_start) || 0
   const mode = ['sum', 'rx', 'tx'].includes(server?.traffic_count_mode) ? server.traffic_count_mode : 'sum'
+
+  if (server?.traffic_display_adjusted) {
+    const usedBytes = mode === 'rx' ? monthlyRx : mode === 'tx' ? monthlyTx : monthlyRx + monthlyTx
+    const percent = limitBytes > 0 ? Math.min((usedBytes / limitBytes) * 100, 999) : 0
+    return {
+      usedBytes,
+      limitBytes,
+      mode,
+      baselineExpired: false,
+      percent,
+      remainingBytes: Math.max(0, limitBytes - usedBytes)
+    }
+  }
+
   const periodChanged = baselinePeriodStart > 0 && periodStart > 0 && periodStart !== baselinePeriodStart
   const monthlyDropped = (baselineRx > 0 && monthlyRx < baselineRx) || (baselineTx > 0 && monthlyTx < baselineTx)
   const baselineExpired = periodChanged || monthlyDropped

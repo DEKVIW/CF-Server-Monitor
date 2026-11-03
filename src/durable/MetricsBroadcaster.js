@@ -57,11 +57,25 @@ export class MetricsBroadcaster {
 
   _broadcast(serverId, payload) {
     if (this.sessions.size === 0) return;
+    const messageTs = Date.now();
+    const sampleTs = Number(payload?.timestamp || payload?.last_updated) || messageTs;
     const message = JSON.stringify({
       type: 'update',
       serverId,
-      ts: Date.now(),
+      ts: messageTs,
       data: payload
+    });
+    // LuminaPlus consumes the newer batched protocol. Keep the legacy
+    // message above for the built-in frontend and send both formats so a
+    // theme cannot change the existing realtime contract.
+    const batchMessage = JSON.stringify({
+      type: 'batchUpdate',
+      ts: messageTs,
+      updates: [{
+        serverId,
+        reportTs: messageTs,
+        samples: [{ ts: sampleTs, data: payload }]
+      }]
     });
 
     for (const [sid, session] of this.sessions) {
@@ -73,6 +87,7 @@ export class MetricsBroadcaster {
       if (!this._shouldDeliver(scope, serverId)) continue;
       try {
         ws.send(message);
+        ws.send(batchMessage);
       } catch (e) {
         try { ws.close(); } catch (_) {}
         this.sessions.delete(sid);

@@ -192,6 +192,12 @@
               </div>
 
               <div class="form-group">
+                <label class="form-label">{{ trans.themeUrl }}</label>
+                <input type="url" v-model="settings.theme_url" class="form-input" placeholder="https://github.com/owner/repo/tree/dist">
+                <div class="form-note">{{ trans.themeUrlHint }}</div>
+              </div>
+
+              <div class="form-group">
                 <label class="form-label">{{ trans.customHead }}</label>
                 <textarea v-model="settings.custom_head" class="form-textarea" rows="3" placeholder="<link rel='stylesheet' href='...'">
                 </textarea>
@@ -742,6 +748,7 @@ const settings = ref({
   custom_bg: '',
   custom_head: '',
   custom_script: '',
+  theme_url: '',
   is_public: false,
   show_price: true,
   show_expire: true,
@@ -943,6 +950,7 @@ const loadSettings = async () => {
         custom_bg: settingsData.custom_bg || '',
         custom_head: settingsData.custom_head || '',
         custom_script: settingsData.custom_script || '',
+        theme_url: settingsData.theme_url || '',
         is_public: settingsData.is_public === 'true',
         show_price: settingsData.show_price === 'true',
         show_expire: settingsData.show_expire === 'true',
@@ -1005,6 +1013,7 @@ const saveSettings = async () => {
         custom_bg: settings.value.custom_bg,
         custom_head: settings.value.custom_head,
         custom_script: settings.value.custom_script,
+        theme_url: settings.value.theme_url,
         is_public: settings.value.is_public ? 'true' : 'false',
         show_price: settings.value.show_price ? 'true' : 'false',
         show_expire: settings.value.show_expire ? 'true' : 'false',

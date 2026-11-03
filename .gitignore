@@ -39,3 +39,6 @@ dist/
 
 # Local update notes
 docs/更新记录/
+
+# Local reference repositories (read-only comparison)
+reference/
