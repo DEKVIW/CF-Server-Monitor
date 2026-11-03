@@ -1,10 +1,27 @@
 import { checkAuth, simpleAuthResponse } from '../middleware/auth.js';
-import { getLatestMetrics, getLatestMetricsForAllServers, getAllServers } from '../database/schema.js';
+import {
+  getDashboardLatencyHistory,
+  getLatestMetrics,
+  getLatestMetricsForAllServers,
+  getAllServers
+} from '../database/schema.js';
 import { getServerDetail } from '../utils/cache.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { createSuccessResponse, createBadRequestResponse, createNotFoundResponse } from '../utils/errors.js';
 import { normalizeThemeUrl } from '../utils/theme.js';
 import { applyThemeTrafficCompatibility } from '../utils/traffic.js';
+import {
+  DASHBOARD_LATENCY_WINDOW_HOURS,
+  DASHBOARD_LATENCY_WINDOW_POINTS
+} from '../utils/config.js';
+
+function attachLatencyHistoryToServers(servers, latencyHistory) {
+  for (const server of servers || []) {
+    const window = latencyHistory?.get(String(server.id));
+    server.ping = window?.ping || [];
+    server.loss = window?.loss || [];
+  }
+}
 
 function addThemeCompatibilityFields(server) {
   server.region = server.region || server.country || '';
@@ -62,11 +79,17 @@ export async function handleServersAPI(request, env, sys) {
   }
   
   const results = (await getAllServers(env.DB, isLoggedIn)).map(server => ({ ...server }));
-  
-  const latestMetricsMap = await getLatestMetricsForAllServers(env.DB);
+  const themeEnabled = !!normalizeThemeUrl(sys.theme_url);
+
+  const [latestMetricsMap, latencyHistory] = await Promise.all([
+    getLatestMetricsForAllServers(env.DB),
+    themeEnabled
+      ? getDashboardLatencyHistory(env.DB, results)
+      : Promise.resolve(new Map())
+  ]);
+  attachLatencyHistoryToServers(results, latencyHistory);
   
   const now = Date.now();
-  const themeEnabled = !!normalizeThemeUrl(sys.theme_url);
   let globalOnline = 0;
   let globalSpeedIn = 0, globalSpeedOut = 0, globalNetTx = 0, globalNetRx = 0;
   const countryStats = {};
@@ -125,6 +148,10 @@ export async function handleServersAPI(request, env, sys) {
       show_tf: sys.show_tf === 'true',
       show_time: true,
       show_three_net_details: true,
+      latency_window: {
+        points: DASHBOARD_LATENCY_WINDOW_POINTS,
+        hours: DASHBOARD_LATENCY_WINDOW_HOURS
+      },
       long_history_points: 120,
       site_title: sys.site_title || 'Server Monitor'
     }

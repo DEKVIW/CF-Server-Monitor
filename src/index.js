@@ -11,6 +11,10 @@ import { applyThemeHistoryCompatibility } from './utils/traffic.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache } from './utils/cache.js';
 import { createSuccessResponse, createUnauthorizedResponse, createBadRequestResponse } from './utils/errors.js';
+import {
+  DASHBOARD_LATENCY_WINDOW_HOURS,
+  DASHBOARD_LATENCY_WINDOW_POINTS
+} from './utils/config.js';
 
 const CURRENT_VERSION = '2.6.5';
 
@@ -262,7 +266,11 @@ export default {
           custom_ct_name: '电信',
           custom_cu_name: '联通',
           custom_cm_name: '移动',
-          custom_bd_name: 'BGP'
+          custom_bd_name: 'BGP',
+          latency_window: {
+            points: DASHBOARD_LATENCY_WINDOW_POINTS,
+            hours: DASHBOARD_LATENCY_WINDOW_HOURS
+          }
         });
       }},
       { method: 'POST', path: '/api/theme_options', handler: async () => {

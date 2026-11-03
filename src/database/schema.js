@@ -5,8 +5,41 @@ import {
   getMetricsHistoryCache,
   setMetricsHistoryCache
 } from '../utils/cache.js';
+import {
+  DASHBOARD_LATENCY_WINDOW_BATCH_SIZE,
+  DASHBOARD_LATENCY_WINDOW_CACHE_MAX_SERVERS,
+  DASHBOARD_LATENCY_WINDOW_CACHE_TTL_MS,
+  DASHBOARD_LATENCY_WINDOW_HOURS,
+  DASHBOARD_LATENCY_WINDOW_POINTS
+} from '../utils/config.js';
 
 let dbInitialized = false;
+
+const DASHBOARD_LATENCY_FIELDS = ['ct', 'cu', 'cm', 'bd'];
+const DASHBOARD_LATENCY_COLUMNS = DASHBOARD_LATENCY_FIELDS.map(field => `ping_${field}`);
+const dashboardLatencyHistoryCache = new Map();
+
+function pruneDashboardLatencyHistoryCache(now = Date.now()) {
+  for (const [serverId, entry] of dashboardLatencyHistoryCache) {
+    if (!entry || now - entry.cachedAt > DASHBOARD_LATENCY_WINDOW_CACHE_TTL_MS) {
+      dashboardLatencyHistoryCache.delete(serverId);
+    }
+  }
+
+  while (dashboardLatencyHistoryCache.size > DASHBOARD_LATENCY_WINDOW_CACHE_MAX_SERVERS) {
+    const oldestServerId = dashboardLatencyHistoryCache.keys().next().value;
+    if (oldestServerId === undefined) break;
+    dashboardLatencyHistoryCache.delete(oldestServerId);
+  }
+}
+
+export function clearDashboardLatencyHistoryCache(serverId = null) {
+  if (serverId == null) {
+    dashboardLatencyHistoryCache.clear();
+  } else {
+    dashboardLatencyHistoryCache.delete(String(serverId));
+  }
+}
 
 function getCacheDuration(hours) {
   if (hours >= 60) {
@@ -213,6 +246,158 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
   setMetricsHistoryCache(serverId, hours, columns, result);
 
   console.log(`[History] FINAL: ${result.length}`);
+
+  return result;
+}
+
+function normalizeDashboardLatencyValue(value) {
+  if (value === null || value === undefined || value === '' || String(value).toLowerCase() === 'false') {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+}
+
+function buildDashboardLatencyWindow(rows, queryStart, intervalMs, points) {
+  const buckets = Array.from({ length: points }, () => null);
+
+  const hasPingValue = row => DASHBOARD_LATENCY_COLUMNS.some(column =>
+    normalizeDashboardLatencyValue(row?.[column]) !== null
+  );
+
+  for (const row of rows || []) {
+    const timestamp = Number(row?.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp < queryStart) continue;
+
+    const bucket = Math.floor((timestamp - queryStart) / intervalMs);
+    if (bucket < 0 || bucket >= points) continue;
+
+    // 每个槽内可能有多条上报。优先保留有真实 Ping 的行，避免槽内第一条
+    // 恰好是空值而把后续有效采样错误显示成灰色。
+    if (!buckets[bucket] || (!hasPingValue(buckets[bucket]) && hasPingValue(row))) {
+      buckets[bucket] = row;
+    }
+  }
+
+  const ping = buckets.map((row, index) => {
+    const point = { ts: queryStart + index * intervalMs };
+    for (const field of DASHBOARD_LATENCY_FIELDS) {
+      point[field] = normalizeDashboardLatencyValue(row?.[`ping_${field}`]);
+    }
+    return point;
+  });
+
+  // 当前历史表没有单独保存丢包字段，保持空数组，不把未知值伪造成 0%。
+  return { ping, loss: [] };
+}
+
+/**
+ * 为第三方主题提供首页最近两小时的真实 Ping 历史。
+ *
+ * 这是首屏补数接口，不参与 WebSocket 实时刷新。没有历史行时返回空窗口，
+ * 主题会继续使用当前值逐步累积，避免用上一值伪造历史。
+ */
+export async function getDashboardLatencyHistory(db, servers, options = {}) {
+  const serverList = Array.isArray(servers) ? servers : [];
+  const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+  const points = Number.isInteger(options.points) && options.points > 0
+    ? options.points
+    : DASHBOARD_LATENCY_WINDOW_POINTS;
+  const queryStart = now - DASHBOARD_LATENCY_WINDOW_HOURS * 60 * 60 * 1000;
+  const queryEnd = now + 1000;
+  const intervalMs = Math.max(10_000, Math.ceil((queryEnd - queryStart) / points));
+  const result = new Map();
+  const pending = [];
+
+  pruneDashboardLatencyHistoryCache(now);
+
+  for (const server of serverList) {
+    const serverId = String(server?.id || '').trim();
+    if (!serverId) continue;
+
+    const cached = dashboardLatencyHistoryCache.get(serverId);
+    if (cached && now - cached.cachedAt < DASHBOARD_LATENCY_WINDOW_CACHE_TTL_MS) {
+      result.set(serverId, cached.window);
+      continue;
+    }
+
+    pending.push({ serverId });
+  }
+
+  if (pending.length === 0) return result;
+
+  const columns = ['timestamp', ...DASHBOARD_LATENCY_COLUMNS].join(', ');
+  const query = `
+    SELECT ${columns}
+    FROM metrics_history
+    WHERE server_id = ?
+      AND typeof(timestamp) = 'integer'
+      AND timestamp >= ?
+      AND timestamp < ?
+    ORDER BY timestamp ASC
+  `;
+
+  const applyRows = (serverId, rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      applyEmpty(serverId);
+      return;
+    }
+    const window = buildDashboardLatencyWindow(rows, queryStart, intervalMs, points);
+    result.set(serverId, window);
+    dashboardLatencyHistoryCache.set(serverId, { cachedAt: now, window });
+  };
+
+  const applyEmpty = serverId => {
+    const empty = { ping: [], loss: [] };
+    result.set(serverId, empty);
+    dashboardLatencyHistoryCache.set(serverId, { cachedAt: now, window: empty });
+  };
+
+  for (let offset = 0; offset < pending.length; offset += DASHBOARD_LATENCY_WINDOW_BATCH_SIZE) {
+    const chunk = pending.slice(offset, offset + DASHBOARD_LATENCY_WINDOW_BATCH_SIZE);
+    if (typeof db.batch !== 'function') {
+      await Promise.all(chunk.map(async ({ serverId }) => {
+        try {
+          const response = await db.prepare(query)
+            .bind(serverId, queryStart, queryEnd)
+            .all();
+          applyRows(serverId, response?.results);
+        } catch (error) {
+          console.warn('[DashboardLatency] query failed:', serverId, error?.message || error);
+          applyEmpty(serverId);
+        }
+      }));
+      continue;
+    }
+
+    try {
+      const responses = await db.batch(chunk.map(({ serverId }) =>
+        db.prepare(query).bind(serverId, queryStart, queryEnd)
+      ));
+
+      for (let index = 0; index < chunk.length; index += 1) {
+        const serverId = chunk[index].serverId;
+        const rows = responses?.[index]?.results;
+        if (Array.isArray(rows)) applyRows(serverId, rows);
+        else applyEmpty(serverId);
+      }
+    } catch (error) {
+      // 批量查询失败时逐台降级，单台历史异常不能影响整个首页。
+      console.warn('[DashboardLatency] batch query failed, falling back:', error?.message || error);
+      await Promise.all(chunk.map(async ({ serverId }) => {
+        try {
+          const response = await db.prepare(query)
+            .bind(serverId, queryStart, queryEnd)
+            .all();
+          applyRows(serverId, response?.results);
+        } catch (fallbackError) {
+          console.warn('[DashboardLatency] fallback query failed:', serverId, fallbackError?.message || fallbackError);
+          applyEmpty(serverId);
+        }
+      }));
+    }
+  }
 
   return result;
 }
